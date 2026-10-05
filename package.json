@@ -1,0 +1,12 @@
+{
+  "name": "scola",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Scola — la messagerie des élèves et étudiants, réunis par classe (filière + niveau).",
+  "scripts": {
+    "postinstall": "cd Backend && npm install",
+    "start": "cd Backend && npm start",
+    "dev": "cd Backend && npm run dev",
+    "admin:reset": "cd Backend && node src/tools/reset-admin.js"
+  }
+}

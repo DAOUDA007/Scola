@@ -1,0 +1,17 @@
+{
+  "name": "Scola — la messagerie de ta classe",
+  "short_name": "Scola",
+  "description": "Discute, partage et appelle tes camarades de filière et de niveau.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0e8f7e",
+  "theme_color": "#0e8f7e",
+  "lang": "fr",
+  "categories": ["education", "social", "communication"],
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

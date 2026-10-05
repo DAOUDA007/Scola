@@ -1,0 +1,22 @@
+{
+  "name": "scola-backend",
+  "version": "1.0.0",
+  "description": "Scola — serveur (API REST, temps réel Socket.IO, signalisation des appels).",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "admin:reset": "node src/tools/reset-admin.js"
+  },
+  "keywords": ["messagerie", "education", "chat", "classe"],
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "jsqr": "^1.4.0",
+    "multer": "^2.4.0",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.4"
+  }
+}
