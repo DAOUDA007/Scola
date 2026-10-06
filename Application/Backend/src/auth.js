@@ -154,7 +154,7 @@ router.post('/auth/register', (req, res) => {
   data.phones[phone] = id;
   cls.memberIds.push(id);
   save();
-  if (created) C.systemMessage(clsId, `${name} a créé le groupe de classe « ${cls.name} »`);
+  // Personne ne « crée » un groupe : chaque élève rejoint celui de sa filière et de son niveau.
   C.systemMessage(clsId, `${name} a rejoint la classe`, { meta: { joined: id } });
   C.toUsers(cls.memberIds.filter(x => x !== id), 'member:join', C.publicUser(data.users[id], cls.memberIds[0]));
   res.json({ token: issueToken(id, req.body.device), created });

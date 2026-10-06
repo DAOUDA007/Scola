@@ -79,6 +79,12 @@ function ensureClass(r) {
     c.restricted ||= [];
   }
   data.admins ||= {};
+  // Personne ne crée un groupe de classe : on retire les anciens messages « … a créé le groupe ».
+  for (const [chatId, list] of Object.entries(data.messages)) {
+    if (data.chats[chatId]?.type !== 'group') continue;
+    const kept = list.filter(m => !(m.type === 'system' && / a créé le groupe de classe « /.test(m.text || '')));
+    if (kept.length !== list.length) { data.messages[chatId] = kept; changed = true; }
+  }
   if (changed) save();
 })();
 
