@@ -28,7 +28,8 @@ function empty() {
     linkCodes: {},    // code QR -> demande de connexion d'appareil
     reports: [],      // signalements (traités par l'administration)
     admins: {},       // id -> administrateur du site (espace /admin)
-    meta: {},         // clé secrète des sessions, etc.
+    pushSubs: {},     // abonnements aux notifications push (par appareil connecté)
+    meta: {},         // clé secrète des sessions, clés VAPID, etc.
   };
 }
 

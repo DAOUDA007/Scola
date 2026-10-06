@@ -12,12 +12,16 @@ import * as calls from './calls.js';
 import * as settings from './settings.js';
 import * as classTab from './classtab.js';
 import * as info from './info.js';
+import { syncPush, disablePush, pushState } from './push.js';
 
 const root = $('#root');
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
-  navigator.serviceWorker.addEventListener('message', (e) => { if (e.data?.type === 'open-chat') nav.openChat(e.data.chatId); });
+  // Clic sur une notification alors que Scola est déjà ouvert : on va au message.
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data?.type === 'open-chat' && S.me) nav.openChat(e.data.chatId, { around: e.data.msgId });
+  });
 }
 
 setUnauthorizedHandler(() => logout(true));
@@ -80,8 +84,10 @@ async function loadApp() {
   const u = params.get('user');
   if (u && S.members.has(u)) post('/chats/dm/' + u).then(c => { S.chats.set(c.id, c); emit('chats'); nav.openChat(c.id); }).catch(() => {});
   else if (u) toast('Ce code QR appartient à un élève d\'une autre classe.');
-  else if (q && S.chats.has(q)) nav.openChat(q);
+  // Ouverture depuis une notification : ?chat=…&msg=… mène directement au message.
+  else if (q) nav.openChat(q, { around: params.get('msg') || undefined });
   if (q || u || params.get('join')) history.replaceState(null, '', '/');
+  syncPush().then(() => emit('push'));
 }
 
 nav.refresh = async () => {
@@ -310,17 +316,19 @@ function notifyMessage(m, chat, viewing) {
   const author = m.meta?.announce ? '📢 Administration' : user(m.senderId).name;
   const title = chat.type === 'group' ? chatTitle(chat) : author;
   const body = n.preview ? (chat.type === 'group' ? `${author} : ` : '') + preview(m) : 'Nouveau message';
-  showNotif({ chat, title, text: body, tag: chat.id });
+  showNotif({ chat, title, text: body, tag: chat.id, msgId: m.id });
 }
 
-async function showNotif({ chat, title, text, tag }) {
+async function showNotif({ chat, title, text, tag, msgId }) {
   sound.message();
   if (document.visibilityState === 'visible') {
-    if (S.current !== chat.id || !document.hasFocus()) banner({ title, text, entity: chatEntity(chat), opts: { group: chat.type === 'group' }, onClick: () => nav.openChat(chat.id) });
+    if (S.current !== chat.id || !document.hasFocus()) banner({ title, text, entity: chatEntity(chat), opts: { group: chat.type === 'group' }, onClick: () => nav.openChat(chat.id, { around: msgId }) });
     return;
   }
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  const opts = { body: text, tag, icon: chatEntity(chat)?.avatar || chatEntity(chat)?.icon || '/icons/icon.svg', badge: '/icons/icon.svg', data: { chatId: chat.id }, renotify: true };
+  // Appareil abonné : c'est le serveur qui envoie la notification (pas de doublon).
+  if (pushState.active) return;
+  const opts = { body: text, tag, icon: chatEntity(chat)?.avatar || chatEntity(chat)?.icon || '/icons/icon.svg', badge: '/icons/icon.svg', data: { chatId: chat.id, msgId, url: `/?chat=${encodeURIComponent(chat.id)}${msgId ? '&msg=' + encodeURIComponent(msgId) : ''}` }, renotify: true };
   try {
     const reg = await navigator.serviceWorker?.getRegistration();
     if (reg) reg.showNotification(title, opts);
@@ -330,6 +338,7 @@ async function showNotif({ chat, title, text, tag }) {
 
 /* ---------- Déconnexion ---------- */
 async function logout(silent = false) {
+  await disablePush();
   if (!silent) { try { await post('/me/logout'); } catch {} }
   token.clear();
   try { S.socket?.disconnect(); } catch {}

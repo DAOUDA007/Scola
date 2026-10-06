@@ -16,6 +16,8 @@ body.admin { overflow: auto; background: var(--bg); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .adm-nav a.on { color: var(--brand); } }
 .adm-nav a .badge { margin-left: auto; }
 .adm-nav .spacer { flex: 1; }
+.adm-links { display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0; }
+.adm-menu-btn { display: none; }
 .adm-main { min-width: 0; display: flex; flex-direction: column; }
 .adm-top { display: flex; align-items: center; gap: 12px; padding: 18px 28px; position: sticky; top: 0; background: var(--bg); z-index: 4; border-bottom: 1px solid var(--line); }
 .adm-top h1 { margin: 0; font-size: 22px; font-weight: 700; flex: 1; min-width: 0; }
@@ -101,9 +103,19 @@ body.admin { overflow: auto; background: var(--bg); }
 
 @media (max-width: 860px) {
   .adm { grid-template-columns: 1fr; }
-  .adm-nav { position: sticky; top: 0; z-index: 5; height: auto; flex-direction: row; overflow-x: auto; padding: 8px; border-right: 0; border-bottom: 1px solid var(--line); }
-  .adm-brand, .adm-nav .spacer { display: none; }
-  .adm-nav a { white-space: nowrap; padding: 8px 12px; }
+  /* Petit écran : barre compacte + menu en liste déroulante. */
+  .adm-nav { position: sticky; top: 0; z-index: 20; height: auto; flex-direction: row; align-items: center; justify-content: space-between; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .adm-brand { padding: 0; font-size: 15px; }
+  .adm-brand small { display: none; }
+  .adm-brand .logo { width: 30px; height: 30px; }
+  .adm-menu-btn { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--text); font-weight: 600; font-size: 14.5px; max-width: 60vw; }
+  .adm-menu-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .adm-menu-btn svg.i:last-child { transition: transform .15s; color: var(--text-3); }
+  .adm-nav.open .adm-menu-btn svg.i:last-child { transform: rotate(180deg); }
+  .adm-links { display: none; position: absolute; top: calc(100% + 6px); right: 12px; left: 12px; flex: none; max-height: calc(100dvh - 90px); overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px; }
+  .adm-nav.open .adm-links { display: flex; animation: pop .12s ease-out; }
+  .adm-links .spacer { display: block; flex: none; height: 1px; background: var(--line); margin: 6px 4px; }
+  .adm-nav a { padding: 12px; }
   .adm-top { position: static; padding: 14px 16px; }
   .adm-content { padding: 16px 16px 50px; }
   .grid2 { grid-template-columns: 1fr; }

@@ -4,6 +4,7 @@ const express = require('express');
 const multer = require('multer');
 const { UPLOADS, storeMedia } = require('./db');
 const C = require('./core');
+const push = require('./push');
 const { requireAuth, httpError, bcrypt } = require('./auth');
 const { data, save } = C;
 
@@ -173,6 +174,7 @@ function insertMessage(user, chat, content, extra = {}) {
   uc.markedUnread = false;
   save();
   C.pushMessage(m);
+  push.notifyMessage(m);
   if (m.type === 'text' && !m.viewOnce) fetchPreview(m);
   return m;
 }
@@ -423,6 +425,18 @@ router.delete('/me/sessions/:id', (req, res) => {
 router.post('/me/logout', (req, res) => {
   delete data.sessions[req.session.id];
   save();
+  res.json({ ok: true });
+});
+
+/* Notifications push : l'appareil s'abonne (les abonnements d'un appareil
+   déconnecté sont ignorés puis supprimés automatiquement). */
+router.get('/push/key', (req, res) => res.json({ publicKey: push.publicKey() }));
+router.post('/push/subscribe', (req, res) => {
+  push.subscribe(req.user.id, req.session.id, req.body.subscription);
+  res.json({ ok: true });
+});
+router.post('/push/unsubscribe', (req, res) => {
+  push.unsubscribe(req.body.endpoint);
   res.json({ ok: true });
 });
 

@@ -70,6 +70,7 @@ Ce que fait l'administration :
 | `ADMIN_DIR` | Dossier de la partie administration (`Admin` par défaut) |
 | `DATABASE_URL` | Base PostgreSQL : données, sessions et fichiers envoyés y sont conservés (voir « Mise en ligne sur Render ») |
 | `PG_POOL_MAX` | Nombre maximal de connexions PostgreSQL (4 par défaut) |
+| `VAPID_SUBJECT` | Contact des notifications push (`mailto:…` ou URL du site ; `mailto:contact@scola.app` par défaut) |
 | `SCOLA_SECRET` | Clé de signature des sessions (sinon générée et conservée dans la base) |
 | `SCOLA_ADMIN_EMAIL`, `SCOLA_ADMIN_PASSWORD` | Identifiants du premier administrateur (utilisés seulement s'il n'en existe aucun) |
 | `SSL_KEY`, `SSL_CERT` | Chemins du certificat pour servir en HTTPS |
@@ -91,6 +92,21 @@ Cela suppose que le serveur **conserve ses données** entre deux redémarrages. 
 (fichier `data/db.json`), mais **pas sur Render** ni sur la plupart des hébergeurs gratuits : leur disque
 est effacé à chaque redéploiement et à chaque réveil après mise en veille, ce qui effacerait comptes,
 sessions et messages. Sur ces hébergeurs, utilisez PostgreSQL (ci-dessous).
+
+### Notifications (même Scola fermé)
+
+Le destinataire d'un message (texte, photo, vidéo, vocal, document, position, sondage…), d'une annonce de
+l'administration ou d'un appel manqué reçoit une notification sur ses appareils, **même lorsque Scola est
+fermé**. Toucher la notification ouvre Scola **directement sur le message**. Quand Scola est déjà ouvert à
+l'écran, une bannière interne remplace la notification (pas de doublon).
+
+- L'utilisateur active les notifications depuis l'invitation en haut de la liste des discussions, ou dans
+  *Paramètres › Notifications*. Sourdine, réglages « messages / groupe / aperçu » et blocage sont respectés.
+- Une déconnexion, ou un appareil retiré dans *Appareils connectés*, arrête les notifications de cet appareil.
+- Il faut **HTTPS** (Render le fournit) ou `localhost`. Sur **iPhone/iPad** (iOS 16.4+), il faut d'abord
+  ajouter Scola à l'écran d'accueil (*Partager › Sur l'écran d'accueil*) et l'ouvrir depuis l'icône.
+- Les clés de chiffrement des notifications (VAPID) sont générées au premier démarrage et conservées dans
+  la base : gardez `DATABASE_URL` sur Render, sinon les abonnements seraient perdus à chaque redémarrage.
 
 ### Mise en ligne sur Render
 
@@ -117,7 +133,8 @@ Mot de passe administrateur perdu sur Render : depuis votre ordinateur, définis
 d'autres appareils par code QR (comme WhatsApp Web), liste des appareils connectés et déconnexion à distance,
 changement de numéro, export de mes données, suppression du compte.
 
-**Profil** — photo, nom, infos (avec suggestions), établissement, code QR personnel.
+**Profil** — photo (importée ou prise, puis **recadrée en cercle** : glisser, zoomer), nom, infos (avec
+suggestions), établissement, code QR personnel.
 
 **Discussions** — groupe de classe + discussions privées entre camarades + « message à moi-même »,
 listes de diffusion, épingler (3 max), archiver, sourdine (8 h / 1 semaine / toujours), marquer comme
@@ -200,5 +217,5 @@ composants d'`Application/Frontend` (`/css/app.css`, `/js/util.js`, `/js/ui.js`)
 - **SMS** : brancher un fournisseur (Orange SMS API, Twilio…) dans `sendSms()`.
 - **Appels** : maillage pair-à-pair limité à 8 participants ; prévoir un serveur TURN, et un SFU
   (mediasoup, LiveKit) pour des appels de classe plus grands.
-- **Notifications** : affichées tant que l'application est ouverte ou en arrière-plan ; les notifications
-  push application fermée demandent l'ajout de Web Push (clés VAPID).
+- **Notifications** : envoyées en Web Push. Les appels entrants ne sonnent que si Scola est ouvert ; un
+  appel non décroché donne une notification « Appel manqué ».

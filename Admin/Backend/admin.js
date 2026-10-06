@@ -14,6 +14,7 @@ const catalog = backendRequire('./src/catalog');
 const { httpError, bcrypt, SECRET, jwt } = backendRequire('./src/auth');
 const { classView, upload } = backendRequire('./src/api');
 const { storeMedia } = backendRequire('./src/db');
+const push = backendRequire('./src/push');
 const { data, save } = C;
 
 const router = express.Router();
@@ -467,7 +468,7 @@ router.post('/announce', (req, res) => {
   if (!text) throw httpError(400, 'Le texte de l\'annonce est vide.');
   const ids = req.body.classIds === 'all' ? Object.keys(data.classes) : (req.body.classIds || []).filter(id => data.classes[id]);
   if (!ids.length) throw httpError(400, 'Choisissez au moins une classe.');
-  for (const id of ids) C.systemMessage(id, text, { meta: { announce: true, by: req.admin.name } });
+  for (const id of ids) push.notifyMessage(C.systemMessage(id, text, { meta: { announce: true, by: req.admin.name } }));
   res.json({ ok: true, sent: ids.length });
 });
 

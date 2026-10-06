@@ -4,6 +4,7 @@ import { get, post, patch, del } from './api.js';
 import { S, on, emit, user, chatTitle, chatEntity, isMuted, preview, sortedChats, draft, displayName } from './state.js';
 import { toast, fail, ctxMenu, confirmBox, choose, pickMembers, pushPage, promptBox, modal } from './ui.js';
 import { nav } from './nav.js';
+import { pushSupported, enablePush } from './push.js';
 
 let filter = 'all';
 
@@ -72,8 +73,11 @@ export function render(side) {
     <div class="filters">
       ${[['all', 'Toutes'], ['unread', 'Non lues'], ['fav', 'Favoris'], ['groups', 'Groupe'], ['broadcast', 'Diffusions']].map(([k, l]) => `<button class="chip ${filter === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('')}
     </div>
+    <div data-pushcard></div>
     <div class="list scroll" data-list></div>`;
   const list = $('[data-list]', side);
+  drawPushCard($('[data-pushcard]', side));
+  live(side, 'push', () => drawPushCard($('[data-pushcard]', side)));
   const q = $('[data-q]', side);
   const draw = () => drawList(list, q.value.trim());
   draw();
@@ -103,6 +107,27 @@ export function render(side) {
     { icon: 'settings', label: 'Paramètres', onClick: () => nav.setTab('settings') },
     { icon: 'logout', label: 'Se déconnecter', danger: true, onClick: async () => { if (await confirmBox('Se déconnecter ?', 'Vous pourrez vous reconnecter avec votre numéro.', { ok: 'Se déconnecter', danger: true })) nav.logout(); } },
   ]);
+}
+
+/* Invitation à activer les notifications (comme WhatsApp Web), masquable 3 jours. */
+const PUSH_LATER = 'scola.push.later';
+function drawPushCard(box) {
+  if (!box) return;
+  let later = 0;
+  try { later = Number(localStorage.getItem(PUSH_LATER)) || 0; } catch {}
+  const show = pushSupported() && Notification.permission === 'default' && Date.now() > later;
+  box.innerHTML = show ? `<div class="push-card">
+    <span class="av" style="--s:44px;background:var(--brand)">${icon('bellOff')}</span>
+    <div class="grow"><b>Activer les notifications</b><small>Soyez prévenu des nouveaux messages, même quand Scola est fermé.</small>
+      <div class="row" style="gap:6px;margin-top:6px"><button class="btn" data-on style="height:32px;padding:0 14px">Activer</button><button class="btn text" data-later style="height:32px">Plus tard</button></div></div></div>` : '';
+  if (!show) return;
+  $('[data-on]', box).onclick = async () => {
+    const r = await enablePush().catch((e) => { fail(e); return null; });
+    if (r === 'granted') toast('Notifications activées sur cet appareil');
+    else if (r === 'denied') toast('Notifications bloquées : autorisez-les dans les réglages du navigateur pour ce site.', { ms: 6000 });
+    drawPushCard(box);
+  };
+  $('[data-later]', box).onclick = () => { try { localStorage.setItem(PUSH_LATER, Date.now() + 3 * 86400e3); } catch {} drawPushCard(box); };
 }
 
 let searchSeq = 0;

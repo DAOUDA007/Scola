@@ -5,7 +5,7 @@ import { S, emit, user, displayName, chatTitle, isMuted, canEditClass, blocked, 
 import { toast, fail, ctxMenu, modal, confirmBox, choose, promptBox, pickMembers, pushPage } from './ui.js';
 import { nav } from './nav.js';
 import { live, muteChat, clearChat, deleteChat, toggleBlock, report } from './chatlist.js';
-import { openViewer } from './media.js';
+import { openViewer, cropImage } from './media.js';
 
 const DISAPPEAR = [{ value: 86400, label: '24 heures' }, { value: 604800, label: '7 jours' }, { value: 7776000, label: '90 jours' }, { value: 0, label: 'Désactivé' }];
 const disLabel = (s) => DISAPPEAR.find(x => x.value === s)?.label || 'Désactivé';
@@ -196,7 +196,9 @@ function setCls(c) { S.cls = c; emit('class'); }
 async function changeIcon() {
   const files = await pickFiles({ accept: 'image/*' });
   if (!files) return;
-  try { const f = await upload(files[0]); setCls(await patch('/class', { icon: f.url })); toast('Icône mise à jour'); } catch (e) { fail(e); }
+  const cropped = await cropImage(files[0], { title: 'Recadrer l\'icône du groupe' });
+  if (!cropped) return;
+  try { const f = await upload(cropped); setCls(await patch('/class', { icon: f.url })); toast('Icône mise à jour'); } catch (e) { fail(e); }
 }
 
 function memberMenu(uid, anchor) {

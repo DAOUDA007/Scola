@@ -9,6 +9,7 @@ import { WALLPAPERS, wallStyle } from './conversation.js';
 import { statusPrivacy } from './status.js';
 import { openViewer } from './media.js';
 import { DIAL, deviceName } from './auth.js';
+import { pushSupported, enablePush, pushState } from './push.js';
 
 let side;
 
@@ -86,7 +87,7 @@ export function openProfile() {
           const items = [
             S.me.avatar && { icon: 'eye', label: 'Voir la photo', onClick: () => openViewer([{ url: S.me.avatar, type: 'image', caption: S.me.name }], 0) },
             { icon: 'image', label: 'Importer une photo', onClick: pickAvatar },
-            { icon: 'camera', label: 'Prendre une photo', onClick: () => import('./media.js').then(async m => { const f = await m.takePhoto(); if (f) saveAvatar(f); }) },
+            { icon: 'camera', label: 'Prendre une photo', onClick: () => import('./media.js').then(async m => { const f = await m.takePhoto({ video: false }); if (f) saveAvatar(f); }) },
             S.me.avatar && { icon: 'trash', label: 'Supprimer la photo', danger: true, onClick: () => patch('/me', { avatar: null }).then(setMe).catch(fail) },
           ];
           import('./ui.js').then(m => m.ctxMenu({ x: e.clientX, y: e.clientY }, items));
@@ -117,8 +118,10 @@ function pickAvatar() {
 }
 async function saveAvatar(file) {
   try {
-    const { compressImage } = await import('./media.js');
-    const f = await upload(await compressImage(file, 800));
+    const { cropImage } = await import('./media.js');
+    const cropped = await cropImage(file, { title: 'Recadrer votre photo' });
+    if (!cropped) return;
+    const f = await upload(cropped);
     setMe(await patch('/me', { avatar: f.url }));
     toast('Photo de profil mise à jour');
   } catch (e) { fail(e); }
@@ -412,8 +415,12 @@ function notifPage() {
         const perm = 'Notification' in window ? Notification.permission : 'unsupported';
         body.innerHTML = `<div class="card card-pad">
             <b>Notifications du navigateur</b>
-            <p class="muted" style="font-size:13.5px;margin:4px 0 10px">${perm === 'granted' ? 'Autorisées : vous serez prévenu même lorsque Scola est en arrière-plan.' : perm === 'denied' ? 'Bloquées dans les réglages du navigateur. Autorisez-les pour ce site.' : perm === 'unsupported' ? 'Non prises en charge par ce navigateur.' : 'Autorisez-les pour être prévenu des messages et appels.'}</p>
-            ${perm === 'default' ? '<button class="btn" data-perm>Autoriser les notifications</button>' : ''}</div>
+            <p class="muted" style="font-size:13.5px;margin:4px 0 10px">${perm === 'granted'
+              ? (pushState.active ? 'Activées sur cet appareil : vous êtes prévenu de chaque message, même quand Scola est fermé. Touchez une notification pour ouvrir le message.' : 'Autorisées. Activez la réception quand Scola est fermé :')
+              : perm === 'denied' ? 'Bloquées dans les réglages du navigateur. Autorisez-les pour ce site, puis revenez ici.'
+              : perm === 'unsupported' || !pushSupported() ? 'Non prises en charge par ce navigateur. Sur iPhone : ajoutez Scola à l\'écran d\'accueil (Partager › Sur l\'écran d\'accueil), puis ouvrez-le depuis l\'icône.'
+              : 'Autorisez-les pour être prévenu des messages et appels, même quand Scola est fermé.'}</p>
+            ${(perm === 'default' || (perm === 'granted' && !pushState.active)) && pushSupported() ? '<button class="btn" data-perm>Activer les notifications</button>' : ''}</div>
           <div class="section-title">Messages</div>
           ${sw('messages', 'Discussions privées', 'Notifications des messages privés', n.messages)}
           ${sw('groups', 'Groupe de la classe', 'Les mentions @vous sont toujours notifiées', n.groups)}
@@ -424,7 +431,12 @@ function notifPage() {
           ${sw('sound', 'Sons', 'Sons des messages entrants et sortants', n.sound)}
           ${row('speaker', 'Tester le son', '', 'data-test')}`;
         body.querySelectorAll('[data-sw]').forEach(i => (i.onchange = () => patch('/me/settings', { notifications: { [i.dataset.sw]: i.checked } }).then(setMe).catch(fail)));
-        $('[data-perm]', body)?.addEventListener('click', async () => { await Notification.requestPermission(); draw(); });
+        $('[data-perm]', body)?.addEventListener('click', async () => {
+          const r = await enablePush().catch((e) => { fail(e); return null; });
+          if (r === 'granted') toast('Notifications activées sur cet appareil');
+          emit('push');
+          draw();
+        });
         $('[data-test]', body).onclick = () => sound.message();
       };
       draw();

@@ -3,6 +3,7 @@
 const C = require('./core');
 const { verifyToken } = require('./auth');
 const { callView } = require('./api');
+const push = require('./push');
 const { data, save } = C;
 
 const MAX_CALL_PARTICIPANTS = 8; // maillage pair-à-pair : au-delà, la qualité chute
@@ -71,7 +72,11 @@ module.exports = function realtime(io) {
     C.toUsers([...new Set([...rec.invited, ...C.chatMembers(chat)])], 'call:ended', { callId: call.id, chatId: call.chatId, reason });
     logFor(call);
     if (!rec.answeredAt && !call.group) {
-      for (const id of rec.invited) if (id !== rec.callerId) C.toUser(id, 'call:missed', { callId: call.id, callerId: rec.callerId, video: rec.video });
+      for (const id of rec.invited) {
+        if (id === rec.callerId) continue;
+        C.toUser(id, 'call:missed', { callId: call.id, callerId: rec.callerId, video: rec.video });
+        if (reason !== 'declined') push.notifyMissedCall(rec.callerId, id, rec.video, call.chatId);
+      }
     }
   }
 

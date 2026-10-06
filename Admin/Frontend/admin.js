@@ -1,6 +1,7 @@
 // Espace d'administration Scola (/admin).
-import { $, $$, h, esc, icon, avatar, listTime, fullDate, relTime, fold, debounce, fileSize, copyText } from '/js/util.js';
+import { $, $$, h, esc, icon, avatar, listTime, fullDate, relTime, fold, debounce, fileSize, copyText, pickFiles } from '/js/util.js';
 import { toast, fail, modal, confirmBox, promptBox, ctxMenu } from '/js/ui.js';
+import { cropImage } from '/js/media.js';
 
 const root = $('#root');
 const TK = 'scola.admin.token';
@@ -82,15 +83,26 @@ async function start() {
   root.innerHTML = `<div class="adm">
     <nav class="adm-nav">
       <div class="adm-brand"><div class="logo"></div><div>Scola<small>Administration</small></div></div>
-      ${NAV.map(([k, ic, l]) => `<a href="#/${k}" data-k="${k}">${icon(ic, 'sm')}<span>${l}</span></a>`).join('')}
-      <div class="spacer"></div>
-      <a href="#" data-theme>${icon('moon', 'sm')}<span>Thème</span></a>
-      <a href="/" target="_blank">${icon('ext', 'sm')}<span>Ouvrir Scola</span></a>
-      <a href="#" data-logout>${icon('logout', 'sm')}<span>Déconnexion</span></a>
+      <!-- Petit écran : menu en liste déroulante -->
+      <button class="adm-menu-btn" data-menu aria-expanded="false" aria-controls="adm-links">${icon('more', 'sm')}<span data-current>Menu</span>${icon('chevD', 'sm')}</button>
+      <div class="adm-links" id="adm-links">
+        ${NAV.map(([k, ic, l]) => `<a href="#/${k}" data-k="${k}">${icon(ic, 'sm')}<span>${l}</span></a>`).join('')}
+        <div class="spacer"></div>
+        <a href="#" data-theme>${icon('moon', 'sm')}<span>Thème</span></a>
+        <a href="/" target="_blank">${icon('ext', 'sm')}<span>Ouvrir Scola</span></a>
+        <a href="#" data-logout>${icon('logout', 'sm')}<span>Déconnexion</span></a>
+      </div>
     </nav>
     <main class="adm-main"><header class="adm-top"><h1 data-title></h1><span class="who">${icon('shieldCheck', 'xs')} ${esc(ME.name)}</span></header>
       <div class="adm-content" data-content></div></main></div>`;
   $('[data-logout]').onclick = (e) => { e.preventDefault(); tok.clear(); showLogin(); };
+  // Liste déroulante (petits écrans) : ouvrir / fermer, se refermer après un choix ou un clic ailleurs.
+  const nav = $('.adm-nav'), menuBtn = $('[data-menu]');
+  const setOpen = (open) => { nav.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', String(open)); };
+  menuBtn.onclick = (e) => { e.stopPropagation(); setOpen(!nav.classList.contains('open')); };
+  $('.adm-links').addEventListener('click', (e) => { if (e.target.closest('a')) setOpen(false); });
+  document.addEventListener('click', (e) => { if (!nav.contains(e.target)) setOpen(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
   $('[data-theme]').onclick = (e) => {
     e.preventDefault();
     const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -117,6 +129,9 @@ setInterval(() => { if (tok.get() && ME) refreshBadge(); }, 30000);
 function route() {
   const [page, id] = (location.hash.replace(/^#\/?/, '') || 'dashboard').split('/');
   $$('.adm-nav a[data-k]').forEach(a => a.classList.toggle('on', a.dataset.k === page));
+  const cur = NAV.find(n => n[0] === page) || NAV[0];
+  const lbl = $('[data-current]');
+  if (lbl) lbl.textContent = cur[2];
   // Zone de contenu neuve à chaque page : aucun écouteur ne subsiste de la page précédente.
   const old = $('[data-content]');
   if (!old) return;
@@ -410,11 +425,12 @@ async function classDetail(c, id) {
   c.querySelectorAll('[data-set]').forEach(i => (i.onchange = () => save({ settings: { [i.dataset.set]: i.checked } })));
   $('[data-dis]', c).onchange = (e) => save({ disappearing: Number(e.target.value) });
   $('[data-icon]', c).onclick = (e) => ctxMenu(e.currentTarget, [
-    { icon: 'image', label: 'Changer l\'icône', onClick: () => {
-      const inp = h('<input type="file" accept="image/*" style="position:fixed;left:-9999px">');
-      document.body.append(inp);
-      inp.onchange = async () => { try { const f = await uploadFile(inp.files[0]); save({ icon: f.url }); } catch (er) { fail(er); } inp.remove(); };
-      inp.click();
+    { icon: 'image', label: 'Changer l\'icône', onClick: async () => {
+      const files = await pickFiles({ accept: 'image/*' });
+      if (!files) return;
+      const cropped = await cropImage(files[0], { title: 'Recadrer l\'icône de la classe' });
+      if (!cropped) return;
+      try { const f = await uploadFile(cropped); save({ icon: f.url }); } catch (er) { fail(er); }
     } },
     k.icon && { icon: 'trash', label: 'Retirer l\'icône', danger: true, onClick: () => save({ icon: null }) },
   ], { align: 'left' });

@@ -151,41 +151,145 @@ export function composeMedia(files, { title = '', asDocuments = false, allowView
 }
 
 /* ---------- Appareil photo ---------- */
-export function takePhoto() {
-  return new Promise(async (resolve) => {
-    // Sur mobile, l'appareil photo natif est plus adapté.
-    if (matchMedia('(pointer: coarse)').matches) {
-      const files = await pickFiles({ accept: 'image/*,video/*', capture: 'environment' });
-      return resolve(files?.[0] || null);
-    }
-    let stream, facing = 'user', result = null;
-    const body = h(`<div class="camera-box"><video autoplay playsinline muted></video></div>`);
+// video : autorise aussi l'enregistrement d'une vidéo avec l'appareil natif (mobile).
+export function takePhoto({ video = true } = {}) {
+  // Sur mobile, l'appareil photo natif est plus adapté (et plus fiable).
+  if (matchMedia('(pointer: coarse)').matches) {
+    return pickFiles({ accept: video ? 'image/*,video/*' : 'image/*', capture: 'environment' }).then(f => f?.[0] || null);
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    toast('Caméra indisponible : ouvrez Scola en HTTPS ou sur localhost.', { error: true });
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    let stream = null, facing = 'user', result = null, closed = false;
+    const body = h(`<div class="camera-box"><div class="cam-wait">${icon('camera', 'lg')}<span>Ouverture de la caméra…</span></div><video playsinline muted></video></div>`);
+    const v = $('video', body);
+    v.muted = true;
+    // Certaines caméras envoient d'abord quelques images minuscules : on attend une vraie image.
+    const ready = () => v.videoWidth >= 64 && v.videoHeight >= 64 && v.readyState >= 2;
+    const setReady = (ok) => {
+      $('.cam-wait', body).hidden = ok;
+      const btn = [...m.el.querySelectorAll('.modal-foot button')].find(b => b.textContent === 'Capturer');
+      if (btn) btn.disabled = !ok;
+    };
     const start = async () => {
+      setReady(false);
       stream?.getTracks().forEach(t => t.stop());
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1600 } }, audio: false });
-        $('video', body).srcObject = stream;
-        $('video', body).classList.toggle('env', facing !== 'user');
-      } catch { toast('Caméra inaccessible.', { error: true }); m.close(); }
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+        if (closed) return stream.getTracks().forEach(t => t.stop());
+        v.srcObject = stream;
+        v.classList.toggle('env', facing !== 'user');
+        await v.play().catch(() => {});
+        const check = () => { if (closed) return; if (ready()) setReady(true); else setTimeout(check, 150); };
+        check();
+      } catch (e) {
+        toast(e?.name === 'NotAllowedError' ? 'Accès à la caméra refusé. Autorisez-le dans votre navigateur.' : 'Aucune caméra disponible.', { error: true });
+        m.close();
+      }
     };
     const m = modal({
       title: 'Prendre une photo', body, wide: true,
       buttons: [
         { label: 'Retourner', onClick: () => { facing = facing === 'user' ? 'environment' : 'user'; start(); return false; } },
         { label: 'Capturer', cls: '', onClick: async () => {
-          const v = $('video', body);
+          if (!ready()) { toast('La caméra n\'est pas encore prête.'); return false; }
           const c = document.createElement('canvas');
           c.width = v.videoWidth; c.height = v.videoHeight;
           const g = c.getContext('2d');
           if (facing === 'user') { g.translate(c.width, 0); g.scale(-1, 1); }
           g.drawImage(v, 0, 0);
           const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
+          if (!blob) { toast('Capture impossible, réessayez.', { error: true }); return false; }
           result = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
         } },
       ],
-      onClose: () => { stream?.getTracks().forEach(t => t.stop()); resolve(result); },
+      onClose: () => { closed = true; stream?.getTracks().forEach(t => t.stop()); resolve(result); },
     });
     start();
+  });
+}
+
+/* ---------- Recadrage d'une photo de profil / d'icône (comme WhatsApp) ---------- */
+// Cadre circulaire : glisser pour déplacer, molette / curseur / pincement pour zoomer.
+export function cropImage(file, { title = 'Recadrer la photo', size = 640 } = {}) {
+  if (!file || !/^image\//.test(file.type)) return Promise.resolve(file || null);
+  return new Promise(async (resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    try { img.src = url; await img.decode(); } catch { URL.revokeObjectURL(url); toast('Image illisible.', { error: true }); return resolve(null); }
+    const body = h(`<div class="cropper">
+      <div class="crop-stage"><img alt="" draggable="false"><div class="crop-mask"></div></div>
+      <div class="crop-zoom">${icon('image', 'sm')}<input type="range" min="0" max="100" value="0" aria-label="Zoom">${icon('image')}</div>
+      <p class="hint" style="text-align:center;margin:6px 0 0">Faites glisser pour cadrer, zoomez avec la molette ou le curseur.</p></div>`);
+    const stage = $('.crop-stage', body), pic = $('img', body), range = $('input', body);
+    pic.src = url;
+    let S = 0, min = 1, s = 1, x = 0, y = 0;
+    const W = img.naturalWidth, H = img.naturalHeight;
+    const clamp = () => {
+      s = Math.min(Math.max(s, min), min * 5);
+      x = Math.min(0, Math.max(S - W * s, x));
+      y = Math.min(0, Math.max(S - H * s, y));
+      pic.style.width = W * s + 'px';
+      pic.style.height = H * s + 'px';
+      pic.style.transform = `translate(${x}px, ${y}px)`;
+      range.value = Math.round(((s / min - 1) / 4) * 100);
+    };
+    const zoomAt = (ns, cx = S / 2, cy = S / 2) => {
+      const k = Math.min(Math.max(ns, min), min * 5) / s;
+      x = cx - (cx - x) * k; y = cy - (cy - y) * k; s *= k;
+      clamp();
+    };
+    const layout = () => {
+      S = stage.clientWidth;
+      min = Math.max(S / W, S / H);
+      s = min; x = (S - W * s) / 2; y = (S - H * s) / 2;
+      clamp();
+    };
+    const pts = new Map();
+    let last = null, pinch = null;
+    stage.addEventListener('pointerdown', (e) => { stage.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); last = { x: e.clientX, y: e.clientY }; });
+    stage.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        const r = stage.getBoundingClientRect();
+        if (pinch) zoomAt(s * d / pinch, (a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top);
+        pinch = d;
+        return;
+      }
+      x += e.clientX - last.x; y += e.clientY - last.y;
+      last = { x: e.clientX, y: e.clientY };
+      clamp();
+    });
+    const up = (e) => { pts.delete(e.pointerId); pinch = null; const p = [...pts.values()][0]; if (p) last = p; };
+    stage.addEventListener('pointerup', up);
+    stage.addEventListener('pointercancel', up);
+    stage.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const r = stage.getBoundingClientRect();
+      zoomAt(s * (e.deltaY < 0 ? 1.1 : 1 / 1.1), e.clientX - r.left, e.clientY - r.top);
+    }, { passive: false });
+    range.oninput = () => zoomAt(min * (1 + (range.value / 100) * 4));
+    let result = null;
+    modal({
+      title, body,
+      buttons: [{ label: 'Annuler' }, { label: 'Valider', cls: '', onClick: async () => {
+        const c = document.createElement('canvas');
+        c.width = c.height = size;
+        const g = c.getContext('2d');
+        g.fillStyle = '#fff';
+        g.fillRect(0, 0, size, size);
+        g.drawImage(img, -x / s, -y / s, S / s, S / s, 0, 0, size, size);
+        const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
+        if (blob) result = new File([blob], 'photo-profil.jpg', { type: 'image/jpeg' });
+      } }],
+      onClose: () => { URL.revokeObjectURL(url); resolve(result); },
+    });
+    requestAnimationFrame(layout);
   });
 }
 

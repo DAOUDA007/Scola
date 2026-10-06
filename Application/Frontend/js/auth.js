@@ -1,7 +1,8 @@
 // Parcours de connexion et d'inscription.
-import { $, h, esc, icon } from './util.js';
+import { $, h, esc, icon, pickFiles } from './util.js';
 import { get, post, token } from './api.js';
-import { toast } from './ui.js';
+import { toast, ctxMenu } from './ui.js';
+import { cropImage, takePhoto } from './media.js';
 
 export const DIAL = {
   "Côte d'Ivoire": '+225', 'Bénin': '+229', 'Burkina Faso': '+226', 'Cameroun': '+237', 'Congo': '+242', 'RD Congo': '+243',
@@ -32,6 +33,7 @@ function shell(inner, narrow = false) {
   root.innerHTML = `<div class="auth"><div class="auth-band"></div>
     <div class="auth-top"><div class="logo"></div>SCOLA</div>
     <div class="auth-card ${narrow ? 'narrow' : ''}">${inner}</div></div>`;
+  window.scrollTo(0, 0); // chaque étape s'ouvre en haut, sans saut
   return $('.auth-card', root);
 }
 
@@ -192,20 +194,25 @@ function profileStep(init) {
     <div class="steps"><i class="on"></i><i></i></div>
     <h1>Ton profil</h1>
     <p class="muted">Indique ton nom et, si tu veux, une photo. Tes camarades de classe les verront.</p>
-    <label class="avatar-pick" title="Ajouter une photo">${reg.avatarUrl ? `<img src="${reg.avatarUrl}">` : icon('camera', 'lg')}<input type="file" accept="image/*" hidden></label>
+    <button type="button" class="avatar-pick" title="Ajouter une photo">${reg.avatarUrl ? `<img src="${reg.avatarUrl}" alt="">` : icon('camera', 'lg')}</button>
     <div class="field"><label>Nom complet</label><input class="input" data-name maxlength="40" placeholder="Ex. Awa Koné" value="${esc(reg.name || '')}"></div>
     <div class="field"><label>Infos (facultatif)</label><input class="input" data-about maxlength="139" placeholder="Salut ! J'utilise Scola." value="${esc(reg.about || '')}"></div>
     <div class="field"><label>Établissement (facultatif)</label><input class="input" data-school maxlength="80" placeholder="Ex. Lycée Classique d'Abidjan, INP-HB, Pigier…" value="${esc(reg.school || '')}"></div>
     <div class="error-text" data-err></div>
     <button class="btn block" data-go>Suivant</button>`, true);
-  $('input[type=file]', card).onchange = (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
-    reg.avatarFile = f;
-    reg.avatarUrl = URL.createObjectURL(f);
-    $('.avatar-pick', card).innerHTML = `<img src="${reg.avatarUrl}"><input type="file" accept="image/*" hidden>`;
-    $('.avatar-pick input', card).onchange = e.target.onchange;
+  // Photo de profil : importée ou prise, puis recadrée en cercle comme sur WhatsApp.
+  const setPhoto = async (file) => {
+    const cropped = await cropImage(file, { title: 'Recadrer ta photo' });
+    if (!cropped) return;
+    reg.avatarFile = cropped;
+    reg.avatarUrl = URL.createObjectURL(cropped);
+    $('.avatar-pick', card).innerHTML = `<img src="${reg.avatarUrl}" alt="">`;
   };
+  $('.avatar-pick', card).onclick = (e) => ctxMenu(e.currentTarget, [
+    { icon: 'image', label: 'Importer une photo', onClick: () => pickFiles({ accept: 'image/*' }).then(f => f && setPhoto(f[0])) },
+    { icon: 'camera', label: 'Prendre une photo', onClick: () => takePhoto({ video: false }).then(f => f && setPhoto(f)) },
+    reg.avatarFile && { icon: 'trash', label: 'Retirer la photo', danger: true, onClick: () => { reg.avatarFile = reg.avatarUrl = null; $('.avatar-pick', card).innerHTML = icon('camera', 'lg'); } },
+  ], { align: 'left' });
   $('[data-go]', card).onclick = () => {
     reg.name = $('[data-name]', card).value.trim();
     reg.about = $('[data-about]', card).value.trim();
@@ -251,13 +258,17 @@ function classStep() {
   const lookup = async () => {
     const v = values();
     const box = $('[data-preview]', card);
-    if (!v.filiere) { box.innerHTML = ''; return; }
+    // La zone garde toujours la même place (hauteur réservée) : le cadre ne saute pas.
+    const show = (title, sub) => { box.innerHTML = `<div class="class-preview">${icon('cap', 'lg')}<div><b>${esc(title)}</b><small>${esc(sub)}</small></div></div>`; };
     const my = ++seq;
+    if (!v.filiere) { box.classList.remove('loading'); return show('Ta classe', 'Saisis le nom de ta filière'); }
+    box.classList.add('loading');
     try {
       const r = await get('/classes/lookup?' + new URLSearchParams(v));
       if (my !== seq) return;
-      box.innerHTML = `<div class="class-preview">${icon('cap', 'lg')}<div><b>${esc(r.displayName)}</b><small>${esc(r.country)} · ${r.exists ? `${r.members} membre${r.members > 1 ? 's' : ''} t'attendent` : 'Tu seras le premier membre de cette classe'}</small></div></div>`;
-    } catch (e) { box.innerHTML = `<div class="error-text">${esc(e.message)}</div>`; }
+      show(r.displayName, `${r.country} · ${r.exists ? `${r.members} membre${r.members > 1 ? 's' : ''} t'attendent` : 'Tu seras le premier membre de cette classe'}`);
+    } catch (e) { if (my === seq) show('Classe introuvable', e.message); }
+    finally { if (my === seq) box.classList.remove('loading'); }
   };
   q('cycle').onchange = () => { pre.filiere = pre.niveau = undefined; fillCycle(); };
   q('country').onchange = lookup;
