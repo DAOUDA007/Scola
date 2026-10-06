@@ -22,12 +22,29 @@ if ('serviceWorker' in navigator) {
 
 setUnauthorizedHandler(() => logout(true));
 
-async function boot() {
+// Comme WhatsApp : une fois connecté, on le reste. Si le serveur est injoignable
+// (réseau coupé, serveur en train de démarrer), on garde la session et on réessaie
+// tout seul. Seul un refus explicite du serveur (session révoquée) déconnecte.
+async function boot(attempt = 0) {
   if (!token.get()) return startAuth(root, () => loadApp());
   try { await loadApp(); }
   catch (e) {
     if (!token.get()) return startAuth(root, () => loadApp());
-    root.innerHTML = `<div class="splash"><div class="splash-logo"></div><p class="muted">${esc(e.message)}</p><button class="btn" onclick="location.reload()">Réessayer</button></div>`;
+    const wait = Math.min(15, 2 + attempt * 2);
+    root.innerHTML = `<div class="splash"><div class="splash-logo"></div>
+      <div class="splash-name" style="font-size:18px;font-weight:500">Connexion à Scola…</div>
+      <p class="muted" style="text-align:center;max-width:320px;margin:0">${navigator.onLine ? 'Le serveur démarre, cela peut prendre jusqu\'à une minute.' : 'Pas de connexion Internet.'}<br><small class="faint">Nouvelle tentative dans <span data-s>${wait}</span> s</small></p>
+      <button class="btn ghost" data-retry>Réessayer maintenant</button></div>`;
+    let left = wait;
+    const retry = () => { clearInterval(tick); removeEventListener('online', retry); boot(attempt + 1); };
+    const tick = setInterval(() => {
+      left--;
+      const el = root.querySelector('[data-s]');
+      if (el) el.textContent = left;
+      if (left <= 0) retry();
+    }, 1000);
+    root.querySelector('[data-retry]').onclick = retry;
+    addEventListener('online', retry);
   }
 }
 

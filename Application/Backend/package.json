@@ -8,7 +8,12 @@
     "dev": "node --watch src/index.js",
     "admin:reset": "node ../../Admin/Backend/reset-admin.js"
   },
-  "keywords": ["messagerie", "education", "chat", "classe"],
+  "keywords": [
+    "messagerie",
+    "education",
+    "chat",
+    "classe"
+  ],
   "license": "ISC",
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -16,6 +21,7 @@
     "jsonwebtoken": "^9.0.3",
     "jsqr": "^1.4.0",
     "multer": "^2.4.0",
+    "pg": "^8.23.1",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.4"
   }

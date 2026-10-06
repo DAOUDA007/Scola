@@ -13,6 +13,7 @@ const C = backendRequire('./src/core');
 const catalog = backendRequire('./src/catalog');
 const { httpError, bcrypt, SECRET, jwt } = backendRequire('./src/auth');
 const { classView, upload } = backendRequire('./src/api');
+const { storeMedia } = backendRequire('./src/db');
 const { data, save } = C;
 
 const router = express.Router();
@@ -518,8 +519,9 @@ router.delete('/statuses/:id', (req, res) => {
 
 /* ---------------- Fichiers (icône de classe) ---------------- */
 
-router.post('/upload', upload.single('file'), (req, res) => {
+router.post('/upload', upload.single('file'), async (req, res) => {
   if (!req.file) throw httpError(400, 'Aucun fichier reçu.');
+  await storeMedia(req.file);
   res.json({ url: '/media/' + req.file.filename, name: req.file.originalname, size: req.file.size, mime: req.file.mimetype });
 });
 

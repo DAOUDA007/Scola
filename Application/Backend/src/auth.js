@@ -12,10 +12,15 @@ const C = require('./core');
 const catalog = require('./catalog');
 const { data, save } = C;
 
+// Clé de signature des sessions, conservée dans la base (elle survit ainsi aux
+// redémarrages, même quand le disque est effacé). L'ancienne clé secret.key est reprise.
 const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
 const SECRET = process.env.SCOLA_SECRET || (() => {
-  if (!fs.existsSync(SECRET_FILE)) fs.writeFileSync(SECRET_FILE, crypto.randomBytes(48).toString('hex'));
-  return fs.readFileSync(SECRET_FILE, 'utf8');
+  if (!data.meta.secret) {
+    data.meta.secret = fs.existsSync(SECRET_FILE) ? fs.readFileSync(SECRET_FILE, 'utf8').trim() : crypto.randomBytes(48).toString('hex');
+    save();
+  }
+  return data.meta.secret;
 })();
 
 // Sans fournisseur SMS configuré, le code est affiché dans la console et renvoyé
@@ -37,7 +42,9 @@ function issueToken(userId, device) {
   const sid = C.uid('s_');
   data.sessions[sid] = { id: sid, userId, device: String(device || 'Navigateur').slice(0, 80), createdAt: C.now(), lastActive: C.now() };
   save();
-  return jwt.sign({ uid: userId, sid }, SECRET, { expiresIn: '365d' });
+  // Pas d'expiration, comme WhatsApp : la session dure jusqu'à la déconnexion volontaire
+  // ou jusqu'à ce que l'appareil soit déconnecté (Appareils connectés / administration).
+  return jwt.sign({ uid: userId, sid }, SECRET);
 }
 
 function verifyToken(token) {

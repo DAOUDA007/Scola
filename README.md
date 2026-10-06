@@ -68,7 +68,9 @@ Ce que fait l'administration :
 | `SCOLA_DATA` | Dossier des données (`Application/Backend/data` par défaut : base `db.json` + fichiers envoyés) |
 | `FRONTEND_DIR` | Interface des élèves à servir (`Application/Frontend` par défaut) |
 | `ADMIN_DIR` | Dossier de la partie administration (`Admin` par défaut) |
-| `SCOLA_SECRET` | Clé de signature des sessions (sinon générée dans `data/secret.key`) |
+| `DATABASE_URL` | Base PostgreSQL : données, sessions et fichiers envoyés y sont conservés (voir « Mise en ligne sur Render ») |
+| `PG_POOL_MAX` | Nombre maximal de connexions PostgreSQL (4 par défaut) |
+| `SCOLA_SECRET` | Clé de signature des sessions (sinon générée et conservée dans la base) |
 | `SCOLA_ADMIN_EMAIL`, `SCOLA_ADMIN_PASSWORD` | Identifiants du premier administrateur (utilisés seulement s'il n'en existe aucun) |
 | `SSL_KEY`, `SSL_CERT` | Chemins du certificat pour servir en HTTPS |
 | `TURN_URL`, `TURN_USER`, `TURN_PASS` | Serveur TURN pour les appels sur réseaux mobiles/pare-feu |
@@ -77,6 +79,37 @@ Ce que fait l'administration :
 > **Important (téléphones)** : micro, caméra, appels et notifications exigent **HTTPS** (sauf sur
 > `localhost`). Pour tester depuis un téléphone du réseau local, servez Scola en HTTPS (`SSL_KEY`/`SSL_CERT`)
 > ou derrière un proxy HTTPS.
+
+### Rester connecté (comme WhatsApp)
+
+Une fois connecté, un utilisateur le reste : la session n'expire pas. Elle ne prend fin que s'il se
+déconnecte, si l'appareil est retiré dans *Paramètres › Appareils connectés*, ou si l'administration
+suspend le compte. Si le serveur est momentanément injoignable (réseau coupé, serveur qui démarre),
+l'application affiche « Connexion à Scola… » et réessaie toute seule, sans redemander de connexion.
+
+Cela suppose que le serveur **conserve ses données** entre deux redémarrages. C'est le cas en local
+(fichier `data/db.json`), mais **pas sur Render** ni sur la plupart des hébergeurs gratuits : leur disque
+est effacé à chaque redéploiement et à chaque réveil après mise en veille, ce qui effacerait comptes,
+sessions et messages. Sur ces hébergeurs, utilisez PostgreSQL (ci-dessous).
+
+### Mise en ligne sur Render
+
+1. Créez une base PostgreSQL gratuite et durable, par exemple sur [Neon](https://neon.tech) (ou Supabase).
+   Copiez son adresse de connexion : `postgresql://utilisateur:motdepasse@hote/base?sslmode=require`.
+2. Sur Render, créez **un seul** service *Web Service* depuis le dépôt GitHub :
+   - *Build Command* : `npm install`
+   - *Start Command* : `npm start`
+3. Dans *Environment*, ajoutez `DATABASE_URL` avec l'adresse de l'étape 1 (et, si vous le souhaitez,
+   `SCOLA_ADMIN_EMAIL` / `SCOLA_ADMIN_PASSWORD` pour le premier administrateur).
+4. Déployez. Au démarrage, les journaux doivent afficher
+   `Données : PostgreSQL (conservées entre les redémarrages)`.
+
+Les élèves utilisent l'adresse du service (`https://votre-service.onrender.com`), l'administration
+`https://votre-service.onrender.com/admin`. Les tables (`scola_kv`, `scola_media`) sont créées
+automatiquement ; si une base locale `db.json` existe au premier lancement, elle est importée.
+
+Mot de passe administrateur perdu sur Render : depuis votre ordinateur, définissez la même
+`DATABASE_URL` puis lancez `npm run admin:reset -- votre@email.com`, et redémarrez le service.
 
 ## Fonctionnalités
 
@@ -158,8 +191,10 @@ composants d'`Application/Frontend` (`/css/app.css`, `/js/util.js`, `/js/ui.js`)
 
 ## Limites connues et pistes pour la production
 
-- **Stockage** : un fichier JSON en mémoire, adapté à quelques milliers d'utilisateurs. Pour un déploiement
-  national, passer à PostgreSQL et à un stockage objet (S3) pour les fichiers.
+- **Stockage** : les données sont gardées en mémoire et sauvegardées dans `db.json` ou dans PostgreSQL
+  (une ligne par collection et par discussion), ce qui convient à quelques milliers d'utilisateurs. Pour
+  un déploiement national, passer à un vrai schéma relationnel, et à un stockage objet (S3) pour les
+  fichiers plutôt qu'à la table `scola_media`.
 - **Chiffrement** : les échanges sont protégés en transit (HTTPS) mais ne sont pas chiffrés de bout en bout
   comme sur WhatsApp ; c'est ce qui permet à l'administration de traiter les signalements.
 - **SMS** : brancher un fournisseur (Orange SMS API, Twilio…) dans `sendSms()`.

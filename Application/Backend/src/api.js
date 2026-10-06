@@ -2,7 +2,7 @@ const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
-const { UPLOADS } = require('./db');
+const { UPLOADS, storeMedia } = require('./db');
 const C = require('./core');
 const { requireAuth, httpError, bcrypt } = require('./auth');
 const { data, save } = C;
@@ -313,8 +313,9 @@ router.get('/bootstrap', (req, res) => {
 
 /* ---------------- Fichiers ---------------- */
 
-router.post('/upload', upload.single('file'), (req, res) => {
+router.post('/upload', upload.single('file'), async (req, res) => {
   if (!req.file) throw httpError(400, 'Aucun fichier reçu.');
+  await storeMedia(req.file);
   res.json({ url: '/media/' + req.file.filename, name: req.file.originalname, size: req.file.size, mime: req.file.mimetype });
 });
 
