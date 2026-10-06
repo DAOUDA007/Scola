@@ -59,7 +59,7 @@ function mediaHTML(m) {
       const voice = m.type === 'voice';
       const sender = user(m.senderId);
       return `<div class="voice" data-vid="${esc(m.id)}" data-url="${esc(md.url)}" data-dur="${md.duration || 0}">
-          ${voice ? `<div class="vav">${avatar(sender, 44)}<span class="mic">${icon('mic', 'xs')}</span></div>` : `<div class="av" style="--s:44px;background:#f0a020">${icon('speaker')}</div>`}
+          ${voice ? `<div class="vav">${avatar(sender, 44)}<span class="mic">${icon('mic', 'xs')}</span></div>` : `<div class="av" style="--s:44px;background:var(--brand)">${icon('speaker')}</div>`}
           <button class="pp" aria-label="Lire">${icon(st && !st.audio.paused ? 'pause' : 'play')}</button>
           <div class="wave">${waveHTML(md.waveform)}</div>
         </div>
@@ -166,8 +166,16 @@ export function msgHTML(m, prev, chat) {
     }
     if (m.replyTo) inner += quoteHTML(m.replyTo);
     switch (m.type) {
-      case 'text':
       case 'sticker':
+        if (m.sticker?.url) {
+          // Sans bulle, comme sur WhatsApp ; reste une bulle normale s'il cite un message.
+          if (!m.replyTo && !m.forwarded && !(group && !mine && first)) bubbleCls = 'jumbo sticker';
+          inner += `<img class="sticker-img" src="${esc(m.sticker.url)}" alt="Sticker" loading="lazy" data-sticker="${esc(m.sticker.url)}">` + meta(m, !!bubbleCls);
+          break;
+        }
+        inner += textBlock(m) + meta(m);
+        break;
+      case 'text':
         if (m.linkPreview) {
           const lp = m.linkPreview;
           inner += `<a class="lp" href="${esc(lp.url)}" target="_blank" rel="noopener noreferrer">${lp.image ? `<img src="${esc(lp.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}<div><b>${esc(lp.title)}</b>${lp.description ? `<p>${esc(lp.description)}</p>` : ''}<small>${esc(lp.site)}</small></div></a>`;

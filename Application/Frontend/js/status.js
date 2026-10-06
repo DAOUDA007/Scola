@@ -8,7 +8,7 @@ import { live } from './chatlist.js';
 import { composeMedia, compressImage, kindOf } from './media.js';
 import { QUICK } from './emoji.js';
 
-const COLORS = ['#0e8f7e', '#2563eb', '#7c3aed', '#be185d', '#c2410c', '#0369a1', '#4d7c0f', '#b45309', '#334155', '#dc2626'];
+const COLORS = ['#EA580C', '#2563eb', '#7c3aed', '#be185d', '#c2410c', '#0369a1', '#4d7c0f', '#b45309', '#334155', '#dc2626'];
 
 function groups() {
   const muted = S.me.settings.mutedStatuses || [];

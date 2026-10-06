@@ -245,7 +245,7 @@ addEventListener('focus', dropExpiredBanners);
 addEventListener('pageshow', dropExpiredBanners);
 
 export function nameColor(id) {
-  const palette = ['#e5484d', '#0e8f7e', '#2563eb', '#c2410c', '#7c3aed', '#be185d', '#0369a1', '#4d7c0f', '#b45309', '#0891b2', '#9333ea', '#15803d'];
+  const palette = ['#e5484d', '#EA580C', '#2563eb', '#c2410c', '#7c3aed', '#be185d', '#0369a1', '#4d7c0f', '#b45309', '#0891b2', '#9333ea', '#15803d'];
   let x = 0;
   for (const c of String(id)) x = (x * 33 + c.charCodeAt(0)) >>> 0;
   return palette[x % palette.length];

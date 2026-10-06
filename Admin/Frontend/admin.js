@@ -13,6 +13,7 @@ const tok = {
 let ME = null;
 let CATALOG = null;
 let pendingReports = 0;
+let globalsBound = false;
 
 async function A(method, url, body) {
   const headers = { Authorization: 'Bearer ' + (tok.get() || '') };
@@ -88,7 +89,7 @@ async function start() {
       <div class="adm-links" id="adm-links">
         ${NAV.map(([k, ic, l]) => `<a href="#/${k}" data-k="${k}">${icon(ic, 'sm')}<span>${l}</span></a>`).join('')}
         <div class="spacer"></div>
-        <a href="#" data-theme>${icon('moon', 'sm')}<span>Thème</span></a>
+        <a href="#" data-toggle-theme>${icon('moon', 'sm')}<span>Thème</span></a>
         <a href="/" target="_blank">${icon('ext', 'sm')}<span>Ouvrir Scola</span></a>
         <a href="#" data-logout>${icon('logout', 'sm')}<span>Déconnexion</span></a>
       </div>
@@ -100,10 +101,16 @@ async function start() {
   const nav = $('.adm-nav'), menuBtn = $('[data-menu]');
   const setOpen = (open) => { nav.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', String(open)); };
   menuBtn.onclick = (e) => { e.stopPropagation(); setOpen(!nav.classList.contains('open')); };
-  $('.adm-links').addEventListener('click', (e) => { if (e.target.closest('a')) setOpen(false); });
-  document.addEventListener('click', (e) => { if (!nav.contains(e.target)) setOpen(false); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
-  $('[data-theme]').onclick = (e) => {
+  $('.adm-links', nav).addEventListener('click', (e) => { if (e.target.closest('a')) setOpen(false); });
+  // Écouteurs globaux posés une seule fois (start() est rappelée après « Mon compte »).
+  if (!globalsBound) {
+    globalsBound = true;
+    const close = () => { const n = $('.adm-nav'); n?.classList.remove('open'); $('[data-menu]')?.setAttribute('aria-expanded', 'false'); };
+    document.addEventListener('click', (e) => { if (!e.target.closest('.adm-nav')) close(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  }
+  // Attention : <html> porte aussi un attribut data-theme, d'où un sélecteur dédié limité au menu.
+  $('[data-toggle-theme]', nav).onclick = (e) => {
     e.preventDefault();
     const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     const next = cur === 'dark' ? 'light' : 'dark';

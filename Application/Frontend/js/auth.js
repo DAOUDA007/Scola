@@ -17,7 +17,7 @@ export function deviceName() {
   return `${b}${o ? ' (' + o + ')' : ''}`;
 }
 
-let root, done, linkTimer, catalog, invite;
+let root, done, linkTimer, catalog, invite, onViewport;
 
 export async function startAuth(el, onDone) {
   root = el;
@@ -34,7 +34,20 @@ function shell(inner, narrow = false) {
     <div class="auth-top"><div class="logo"></div>SCOLA</div>
     <div class="auth-card ${narrow ? 'narrow' : ''}">${inner}</div></div>`;
   window.scrollTo(0, 0); // chaque étape s'ouvre en haut, sans saut
-  return $('.auth-card', root);
+  const card = $('.auth-card', root);
+  // Le contenu du cadre défile (pas la page) : le champ actif est amené au centre du cadre,
+  // y compris quand le clavier du téléphone s'ouvre et réduit la hauteur visible.
+  const reveal = () => {
+    const el = document.activeElement;
+    if (el && card.contains(el) && /INPUT|SELECT|TEXTAREA/.test(el.tagName)) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+  card.addEventListener('focusin', () => setTimeout(reveal, 300));
+  if (window.visualViewport) {
+    if (onViewport) visualViewport.removeEventListener('resize', onViewport);
+    onViewport = () => { if (card.isConnected) reveal(); };
+    visualViewport.addEventListener('resize', onViewport);
+  }
+  return card;
 }
 
 /* ---------- Accueil ---------- */

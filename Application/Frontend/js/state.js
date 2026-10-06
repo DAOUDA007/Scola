@@ -80,6 +80,7 @@ export function preview(m) {
     case 'contact': return '👤 ' + (m.contact?.name || 'Contact');
     case 'poll': return '📊 ' + (m.poll?.question || 'Sondage');
     case 'event': return '📅 ' + (m.event?.title || 'Évènement');
+    case 'sticker': return '💟 Sticker';
     default: return stripFormat(m.text);
   }
 }

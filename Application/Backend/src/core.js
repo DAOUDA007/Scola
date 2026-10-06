@@ -173,7 +173,7 @@ function snippet(m) {
     case 'contact': return '👤 ' + (m.contact?.name || 'Contact');
     case 'poll': return '📊 ' + (m.poll?.question || 'Sondage');
     case 'event': return '📅 ' + (m.event?.title || 'Évènement');
-    case 'sticker': return m.text || 'Autocollant';
+    case 'sticker': return '💟 Sticker';
     case 'system': return m.text;
     default: return m.text || '';
   }
@@ -218,6 +218,7 @@ function msgView(m, viewerId) {
     poll: m.poll || null,
     event: m.event || null,
     statusRef: m.statusRef || null,
+    sticker: m.sticker || null,
     viewOnce: !!m.viewOnce,
     linkPreview: m.linkPreview || null,
   });
@@ -314,7 +315,7 @@ function deleteAccount(u, note) {
 function deleteForAll(m, by) {
   m.deletedForAll = true;
   m.deletedBy = by;
-  for (const k of ['text', 'media', 'poll', 'location', 'contact', 'event', 'replyTo', 'linkPreview']) delete m[k];
+  for (const k of ['text', 'media', 'sticker', 'poll', 'location', 'contact', 'event', 'replyTo', 'linkPreview']) delete m[k];
   m.reactions = {};
   const chat = data.chats[m.chatId];
   if (chat) chat.pinnedMsgs = (chat.pinnedMsgs || []).filter(p => p.id !== m.id);

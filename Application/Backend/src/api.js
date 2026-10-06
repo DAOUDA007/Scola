@@ -53,10 +53,12 @@ function pushUser(u) {
 }
 
 function selfView(u) {
-  return { ...C.publicUser(u, u.id), phone: u.phone, privacy: u.privacy, settings: u.settings, blocked: u.blocked, hasPin: !!u.pinHash, pinHint: u.pinHint || '' };
+  return { ...C.publicUser(u, u.id), phone: u.phone, privacy: u.privacy, settings: u.settings, blocked: u.blocked, hasPin: !!u.pinHash, pinHint: u.pinHint || '', stickers: u.stickers || [], favStickers: u.favStickers || [] };
 }
 
 function isMedia(u) { return typeof u === 'string' && /^\/media\/[a-f0-9]{32}(\.[a-z0-9]{1,7})?$/.test(u); }
+// Sticker : image envoyée (créée par un élève) ou sticker du pack Scola intégré.
+function isSticker(u) { return isMedia(u) || (typeof u === 'string' && /^\/stickers\/[a-z0-9-]{1,40}\.svg$/.test(u)); }
 
 function cleanMedia(md) {
   if (!md || !isMedia(md.url)) throw httpError(400, 'Fichier invalide.');
@@ -95,8 +97,12 @@ function buildContent(user, chat, b) {
   const members = chat.type === 'broadcast' ? [user.id, ...chat.recipients] : C.chatMembers(chat);
   switch (type) {
     case 'text':
-    case 'sticker':
       if (!c.text.trim()) throw httpError(400, 'Message vide.');
+      break;
+    case 'sticker':
+      if (!isSticker(b.sticker?.url)) throw httpError(400, 'Sticker invalide.');
+      c.sticker = { url: b.sticker.url };
+      c.text = '';
       break;
     case 'image': case 'video': case 'audio': case 'voice': case 'document':
       c.media = cleanMedia(b.media);
@@ -374,6 +380,33 @@ router.patch('/me/settings', (req, res) => {
   if (typeof b.archiveKeep === 'boolean') s.archiveKeep = b.archiveKeep;
   if (b.notifications) for (const k of Object.keys(s.notifications)) if (typeof b.notifications[k] === 'boolean') s.notifications[k] = b.notifications[k];
   if (Array.isArray(b.mutedStatuses)) s.mutedStatuses = b.mutedStatuses.filter(x => data.users[x]).slice(0, 2000);
+  save();
+  res.json(selfView(req.user));
+});
+
+/* Stickers : collection personnelle (« Mes stickers ») et favoris, synchronisés sur tous les appareils. */
+router.post('/me/stickers', (req, res) => {
+  const url = req.body.url;
+  if (!isMedia(url)) throw httpError(400, 'Sticker invalide.');
+  const list = (req.user.stickers ||= []);
+  if (!list.includes(url)) list.unshift(url);
+  if (list.length > 200) throw httpError(400, '200 stickers maximum : supprimez-en quelques-uns.');
+  save();
+  res.json(selfView(req.user));
+});
+router.delete('/me/stickers', (req, res) => {
+  const url = String(req.query.url || '');
+  req.user.stickers = (req.user.stickers || []).filter(x => x !== url);
+  req.user.favStickers = (req.user.favStickers || []).filter(x => x !== url);
+  save();
+  res.json(selfView(req.user));
+});
+router.post('/me/stickers/fav', (req, res) => {
+  const url = req.body.url;
+  if (!isSticker(url)) throw httpError(400, 'Sticker invalide.');
+  let favs = (req.user.favStickers ||= []).filter(x => x !== url);
+  if (req.body.on !== false) favs.unshift(url);
+  req.user.favStickers = favs.slice(0, 100);
   save();
   res.json(selfView(req.user));
 });
@@ -847,7 +880,7 @@ router.post('/messages/forward', (req, res) => {
   let sent = 0;
   for (const chat of targets) {
     for (const m of msgs) {
-      const body = { type: m.type, text: m.text, media: m.media, location: m.location, contact: m.contact, poll: m.poll && { question: m.poll.question, multiple: m.poll.multiple, options: m.poll.options.map(o => o.text) }, event: m.event };
+      const body = { type: m.type, text: m.text, media: m.media, sticker: m.sticker, location: m.location, contact: m.contact, poll: m.poll && { question: m.poll.question, multiple: m.poll.multiple, options: m.poll.options.map(o => o.text) }, event: m.event };
       sendTo(req.user, chat, body, { forwarded: m.senderId !== req.user.id || !!m.forwarded, forwardCount: (m.forwardCount || 0) + (m.senderId !== req.user.id ? 1 : 0) });
       sent++;
     }
@@ -930,7 +963,7 @@ router.post('/statuses', (req, res) => {
   const s = {
     id: C.uid('st_'), userId: req.user.id, classId: req.user.classId, type, createdAt: C.now(),
     expiresAt: C.now() + 24 * 3600e3, views: {}, reactions: {},
-    text: String(b.text || '').slice(0, 700), bg: /^#[0-9a-f]{6}$/i.test(b.bg) ? b.bg : '#0f766e',
+    text: String(b.text || '').slice(0, 700), bg: /^#[0-9a-f]{6}$/i.test(b.bg) ? b.bg : '#EA580C',
     font: Number(b.font) % 5 || 0, caption: String(b.caption || '').slice(0, 700),
     media: type === 'text' ? null : cleanMedia(b.media),
   };

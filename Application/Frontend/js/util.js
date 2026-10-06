@@ -72,6 +72,10 @@ const P = {
   arrowIn: '<path d="M17 7 7 17"/><path d="M17 17H7V7"/>',
   arrowOut: '<path d="M7 17 17 7"/><path d="M7 7h10v10"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  flash: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
+  flashOff: '<path d="M16.5 10.5 21 10h-9"/><path d="M13 2 9.6 6.1"/><path d="M7.3 9 3 14h9l-1 8 4.3-5.2"/><path d="m2 2 20 20"/>',
+  sticker: '<path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/><path d="M8 13h.01M16 13h.01"/><path d="M10 16s.8 1 2 1c1.3 0 2-1 2-1"/>',
+  gif: '<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M10 10H8.5a1.5 1.5 0 0 0 0 3H10v-1.5H9"/><path d="M13 10v4"/><path d="M16 14v-4h2.5M16 12h2"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   db: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/>',
   checkSq: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 12 2 2 4-4"/>',
@@ -193,7 +197,7 @@ export function fileSize(n) {
 }
 
 /* ---------- Couleurs & avatars ---------- */
-const COLORS = ['#0e8f7e', '#1f77b4', '#7c3aed', '#c2410c', '#be185d', '#0369a1', '#4d7c0f', '#b45309', '#6d28d9', '#0f766e', '#9333ea', '#dc2626', '#2563eb', '#059669'];
+const COLORS = ['#EA580C', '#1f77b4', '#7c3aed', '#c2410c', '#be185d', '#0369a1', '#4d7c0f', '#b45309', '#6d28d9', '#EA580C', '#9333ea', '#dc2626', '#2563eb', '#059669'];
 export function colorFor(id) {
   let x = 0;
   for (const c of String(id || '')) x = (x * 31 + c.charCodeAt(0)) >>> 0;

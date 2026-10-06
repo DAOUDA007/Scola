@@ -7,7 +7,8 @@ import { nav } from './nav.js';
 import { live, typingText, chatMenu, muteChat, clearChat, deleteChat, toggleBlock, report } from './chatlist.js';
 import { msgHTML, daySep, sameGroup, quoteHTML, eventIcs } from './msgview.js';
 import { emojiPanel, QUICK, pushRecent } from './emoji.js';
-import { openViewer, composeMedia, takePhoto, compressImage, imageInfo, videoInfo, kindOf, toggleVoice, seekVoice, cycleSpeed, syncVoice, startRecorder } from './media.js';
+import { expressionPanel, stickerMenu } from './stickers.js';
+import { openViewer, composeMedia, openCamera, compressImage, imageInfo, videoInfo, kindOf, toggleVoice, seekVoice, cycleSpeed, syncVoice, startRecorder } from './media.js';
 
 let cur = null;
 const liveWatch = new Map();
@@ -110,7 +111,10 @@ function renderShell() {
     <header class="conv-head" data-head></header>
     <div data-banner></div>
     <div data-pinned></div>
-    <div class="messages scroll" data-list><div class="wall" data-wall></div><div class="messages-inner" data-inner></div></div>
+    <div class="messages-area">
+      <div class="wall" data-wall></div>
+      <div class="messages scroll" data-list><div class="messages-inner" data-inner></div></div>
+    </div>
     <button class="to-bottom" data-bottom hidden>${icon('chevD')}</button>
     <div class="composer-wrap" data-composer></div>
   </div>`);
@@ -143,8 +147,11 @@ function renderShell() {
   live(root, 'typing', (id) => { if (id === cur?.chatId) renderHead(); });
   live(root, 'presence', (uid) => { if (S.chats.get(cur?.chatId)?.peerId === uid) renderHead(); });
   live(root, 'chat:meta', (id) => { if (id === cur?.chatId) { renderHead(); renderPinned(); renderWall(); } });
-  live(root, 'class', () => { if (chat?.type === 'group') { renderHead(); renderComposer(); } });
-  live(root, 'me', () => { renderHead(); renderComposer(); renderWall(); });
+  // La zone de saisie n'est redessinée que si le droit d'écrire change (blocage, restriction,
+  // lecture seule) : un panneau ouvert (emojis, stickers) reste ouvert.
+  const refreshComposer = () => { const k = JSON.stringify(sendBlocked()); if (k !== cur?.blockKey) renderComposer(); };
+  live(root, 'class', () => { if (chat?.type === 'group') { renderHead(); refreshComposer(); } });
+  live(root, 'me', () => { renderHead(); refreshComposer(); renderWall(); });
   live(root, 'members', () => renderHead());
   live(root, 'calls:active', () => renderBanner());
 }
@@ -424,6 +431,8 @@ function bindMessages() {
     const prof = t.closest('[data-profile],.mention');
     if (prof) return nav.openProfile(prof.dataset.profile || prof.dataset.uid);
     if (t.closest('[data-once]')) return openOnce(m);
+    const stk = t.closest('[data-sticker]');
+    if (stk) return stickerMenu(stk.dataset.sticker, stk);
     if (t.closest('[data-view]')) return viewMedia(m);
     if (t.closest('.voice .pp')) return toggleVoice(m.id, m.media.url, cur.inner);
     const wave = t.closest('.voice .wave');
@@ -512,6 +521,7 @@ function msgMenu(m, anchor, touch = false) {
     { icon: 'reply', label: 'Répondre', onClick: () => setReply(m) },
     chat.type === 'group' && !mine && { icon: 'user', label: `Écrire à ${user(m.senderId).name.split(' ')[0]} en privé`, onClick: () => post('/chats/dm/' + m.senderId).then(c => { S.chats.set(c.id, c); openChat(c.id); }).catch(fail) },
     hasText && { icon: 'copy', label: 'Copier', onClick: () => copyText(m.text).then(() => toast('Message copié')) },
+    m.type === 'sticker' && m.sticker && { icon: 'sticker', label: 'Favoris / mes stickers…', onClick: () => stickerMenu(m.sticker.url, anchor) },
     !m.viewOnce && { icon: 'forward', label: 'Transférer', onClick: () => forwardMessages([m.id]) },
     pinAllowed && { icon: 'thumbtack', label: m.pinned ? 'Désépingler' : 'Épingler', onClick: () => pinMessage(m) },
     { icon: m.starred ? 'starFill' : 'star', label: m.starred ? 'Retirer des importants' : 'Marquer comme important', onClick: () => post(`/messages/${m.id}/star`).catch(fail) },
@@ -736,6 +746,7 @@ function renderComposer() {
   if (!cur) return;
   const wrap = $('[data-composer]', cur.root);
   const block = sendBlocked();
+  cur.blockKey = JSON.stringify(block);
   if (block) {
     wrap.innerHTML = block.blocked
       ? `<div class="notice-bar">Vous avez bloqué ce contact. <button data-unblock>Débloquer</button></div>`
@@ -782,10 +793,10 @@ function renderComposer() {
   });
   $('[data-send]', wrap).onclick = () => (ta.value.trim() || cur.editing ? sendText() : startRecording());
   $('[data-attach]', wrap).onclick = (e) => attachMenu(e.currentTarget);
-  $('[data-cam]', wrap).onclick = async () => { const f = await takePhoto(); if (f) pickedFiles([f]); };
+  $('[data-cam]', wrap).onclick = async () => { const files = await openCamera(); if (files) pickedFiles(files); };
   $('[data-emoji]', wrap).onclick = () => {
     const box = $('[data-emojis]', wrap);
-    if (!box.firstChild) box.append(emojiPanel((em) => insertAtCaret(ta, em)));
+    if (!box.firstChild) box.append(expressionPanel({ onEmoji: (em) => insertAtCaret(ta, em), onSticker: (url) => sendSticker(url) }));
     box.hidden = !box.hidden;
     $('[data-emoji]', wrap).classList.toggle('active', !box.hidden);
     if (!box.hidden) scrollBottom();
@@ -1006,6 +1017,11 @@ async function sendPayload(body, tempFields) {
   } catch (e) { dropTemp(temp); fail(e); return null; }
 }
 
+function sendSticker(url) {
+  if (!cur || sendBlocked()) return;
+  sendPayload({ type: 'sticker', sticker: { url } });
+}
+
 async function pickedFiles(files, asDocuments = false) {
   const items = await composeMedia(files, { title: chatTitle(S.chats.get(cur.chatId)), asDocuments, allowViewOnce: S.chats.get(cur.chatId).type !== 'broadcast' });
   if (items?.length) sendFiles(items);
@@ -1043,7 +1059,7 @@ function attachMenu(anchor) {
   const menu = ctxMenu({ x: r.left, y: r.top }, [
     { icon: 'file', label: 'Document', onClick: () => pick('', true, (f) => pickedFiles(f, true)) },
     { icon: 'image', label: 'Photos et vidéos', onClick: () => pick('image/*,video/*', true, (f) => pickedFiles(f)) },
-    { icon: 'camera', label: 'Appareil photo', onClick: async () => { const f = await takePhoto(); if (f) pickedFiles([f]); } },
+    { icon: 'camera', label: 'Appareil photo', onClick: async () => { const files = await openCamera(); if (files) pickedFiles(files); } },
     { icon: 'speaker', label: 'Audio', onClick: () => pick('audio/*', true, (f) => pickedFiles(f)) },
     { icon: 'user', label: 'Contact', onClick: sendContact },
     { icon: 'poll', label: 'Sondage', onClick: createPoll },

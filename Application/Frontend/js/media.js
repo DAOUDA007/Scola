@@ -151,76 +151,198 @@ export function composeMedia(files, { title = '', asDocuments = false, allowView
 }
 
 /* ---------- Appareil photo ---------- */
-// video : autorise aussi l'enregistrement d'une vidéo avec l'appareil natif (mobile).
-export function takePhoto({ video = true } = {}) {
-  // Sur mobile, l'appareil photo natif est plus adapté (et plus fiable).
-  if (matchMedia('(pointer: coarse)').matches) {
-    return pickFiles({ accept: video ? 'image/*,video/*' : 'image/*', capture: 'environment' }).then(f => f?.[0] || null);
-  }
-  if (!navigator.mediaDevices?.getUserMedia) {
-    toast('Caméra indisponible : ouvrez Scola en HTTPS ou sur localhost.', { error: true });
-    return Promise.resolve(null);
-  }
+// Appareil photo plein écran façon WhatsApp : aperçu en direct, flash, galerie,
+// déclencheur (appui = photo, appui long = vidéo), retournement, modes Vidéo / Photo.
+// Renvoie une liste de fichiers (photo, vidéo ou fichiers choisis dans la galerie), ou null.
+export function openCamera({ allowVideo = true } = {}) {
+  const fallback = () => pickFiles({ accept: allowVideo ? 'image/*,video/*' : 'image/*', capture: 'environment' });
+  if (!navigator.mediaDevices?.getUserMedia) return fallback();
   return new Promise((resolve) => {
-    let stream = null, facing = 'user', result = null, closed = false;
-    const body = h(`<div class="camera-box"><div class="cam-wait">${icon('camera', 'lg')}<span>Ouverture de la caméra…</span></div><video playsinline muted></video></div>`);
-    const v = $('video', body);
+    let stream = null, facing = matchMedia('(pointer: coarse)').matches ? 'environment' : 'user';
+    let mode = 'photo', torch = false, rec = null, recTimer = null, holdTimer = null, done = false;
+    const el = h(`<div class="camera-ui" role="dialog" aria-label="Appareil photo">
+      <video playsinline muted></video>
+      <div class="cam-wait">${icon('camera', 'lg')}<span>Ouverture de la caméra…</span></div>
+      <div class="cam-top">
+        <button class="cam-round" data-close aria-label="Fermer">${icon('x')}</button>
+        <span class="cam-rec" data-rec hidden><i></i><b data-time>0:00</b></span>
+        <button class="cam-round" data-torch aria-label="Flash" hidden>${icon('flashOff')}</button>
+      </div>
+      <div class="cam-bottom">
+        <div class="cam-row">
+          <button class="cam-round" data-gallery aria-label="Galerie">${icon('image')}</button>
+          <button class="cam-shutter" data-shutter aria-label="Prendre une photo"><span></span></button>
+          <button class="cam-round" data-flip aria-label="Retourner la caméra">${icon('flip')}</button>
+        </div>
+        ${allowVideo ? `<div class="cam-modes"><button data-mode="video">Vidéo</button><button data-mode="photo" class="on">Photo</button></div>
+        <p class="cam-hint">Appuyez pour une photo, maintenez pour une vidéo</p>` : ''}
+      </div></div>`);
+    const v = $('video', el);
     v.muted = true;
-    // Certaines caméras envoient d'abord quelques images minuscules : on attend une vraie image.
+    const shutter = $('[data-shutter]', el);
     const ready = () => v.videoWidth >= 64 && v.videoHeight >= 64 && v.readyState >= 2;
-    const setReady = (ok) => {
-      $('.cam-wait', body).hidden = ok;
-      const btn = [...m.el.querySelectorAll('.modal-foot button')].find(b => b.textContent === 'Capturer');
-      if (btn) btn.disabled = !ok;
-    };
-    const start = async () => {
-      setReady(false);
+
+    const finish = (files) => {
+      if (done) return;
+      done = true;
+      clearTimeout(holdTimer); clearInterval(recTimer);
+      try { rec?.state === 'recording' && rec.stop(); } catch {}
       stream?.getTracks().forEach(t => t.stop());
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
-        if (closed) return stream.getTracks().forEach(t => t.stop());
-        v.srcObject = stream;
-        v.classList.toggle('env', facing !== 'user');
-        await v.play().catch(() => {});
-        const check = () => { if (closed) return; if (ready()) setReady(true); else setTimeout(check, 150); };
-        check();
-      } catch (e) {
-        toast(e?.name === 'NotAllowedError' ? 'Accès à la caméra refusé. Autorisez-le dans votre navigateur.' : 'Aucune caméra disponible.', { error: true });
-        m.close();
-      }
+      el.remove();
+      removeEventListener('keydown', onKey);
+      resolve(files && files.length ? files : null);
     };
-    const m = modal({
-      title: 'Prendre une photo', body, wide: true,
-      buttons: [
-        { label: 'Retourner', onClick: () => { facing = facing === 'user' ? 'environment' : 'user'; start(); return false; } },
-        { label: 'Capturer', cls: '', onClick: async () => {
-          if (!ready()) { toast('La caméra n\'est pas encore prête.'); return false; }
-          const c = document.createElement('canvas');
-          c.width = v.videoWidth; c.height = v.videoHeight;
-          const g = c.getContext('2d');
-          if (facing === 'user') { g.translate(c.width, 0); g.scale(-1, 1); }
-          g.drawImage(v, 0, 0);
-          const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
-          if (!blob) { toast('Capture impossible, réessayez.', { error: true }); return false; }
-          result = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
-        } },
-      ],
-      onClose: () => { closed = true; stream?.getTracks().forEach(t => t.stop()); resolve(result); },
+    const onKey = (e) => { if (e.key === 'Escape') finish(null); };
+    addEventListener('keydown', onKey);
+
+    const start = async () => {
+      $('.cam-wait', el).hidden = false;
+      shutter.disabled = true;
+      stream?.getTracks().forEach(t => t.stop());
+      // La caméra peut être encore occupée juste après une fermeture : on réessaie, avec des
+      // réglages de plus en plus souples, avant d'abandonner.
+      const tries = [
+        { video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
+        { video: { facingMode: facing }, audio: false },
+        { video: true, audio: false },
+      ];
+      let err = null;
+      stream = null;
+      for (let i = 0; i < tries.length && !stream && !done; i++) {
+        try { stream = await navigator.mediaDevices.getUserMedia(tries[i]); }
+        catch (e) {
+          err = e;
+          console.warn('[caméra]', e?.name, e?.message);
+          if (e?.name === 'NotAllowedError' || e?.name === 'SecurityError') break;
+          await new Promise(r => setTimeout(r, 700));
+        }
+      }
+      if (done) return stream?.getTracks().forEach(t => t.stop());
+      if (!stream) {
+        finish(null);
+        if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError') toast('Accès à la caméra refusé. Autorisez-le dans les réglages du navigateur pour ce site.', { error: true, ms: 6000 });
+        else if (err?.name === 'NotFoundError') toast('Aucune caméra détectée sur cet appareil.', { error: true });
+        else toast('La caméra est utilisée par une autre application. Fermez-la puis réessayez.', { error: true, ms: 6000 });
+        return;
+      }
+      if (done) return stream.getTracks().forEach(t => t.stop());
+      v.srcObject = stream;
+      v.classList.toggle('mirror', facing === 'user');
+      await v.play().catch(() => {});
+      const track = stream.getVideoTracks()[0];
+      const canTorch = !!track?.getCapabilities?.().torch;
+      $('[data-torch]', el).hidden = !canTorch;
+      torch = false;
+      $('[data-torch]', el).innerHTML = icon('flashOff');
+      const check = () => { if (done) return; if (ready()) { $('.cam-wait', el).hidden = true; shutter.disabled = false; } else setTimeout(check, 150); };
+      check();
+    };
+
+    const photo = async () => {
+      if (!ready()) return;
+      const c = document.createElement('canvas');
+      c.width = v.videoWidth; c.height = v.videoHeight;
+      const g = c.getContext('2d');
+      if (facing === 'user') { g.translate(c.width, 0); g.scale(-1, 1); }
+      g.drawImage(v, 0, 0);
+      el.classList.add('flash');
+      const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+      if (!blob) return toast('Capture impossible, réessayez.', { error: true });
+      finish([new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' })]);
+    };
+
+    const startVideo = async () => {
+      if (!ready() || rec) return;
+      if (!window.MediaRecorder) return toast('Enregistrement vidéo non pris en charge par ce navigateur.', { error: true });
+      let audio = null;
+      try { audio = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch {}
+      const mix = new MediaStream([...stream.getVideoTracks(), ...(audio ? audio.getAudioTracks() : [])]);
+      const type = ['video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find(t => MediaRecorder.isTypeSupported?.(t)) || '';
+      const chunks = [];
+      rec = new MediaRecorder(mix, type ? { mimeType: type, videoBitsPerSecond: 2_500_000 } : undefined);
+      rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      rec.onstop = () => {
+        audio?.getTracks().forEach(t => t.stop());
+        const mime = (rec.mimeType || type || 'video/webm').split(';')[0];
+        const blob = new Blob(chunks, { type: mime });
+        rec = null;
+        if (blob.size < 2000) { el.classList.remove('recording'); return toast('Vidéo trop courte.'); }
+        finish([new File([blob], `video-${Date.now()}.${mime.includes('mp4') ? 'mp4' : 'webm'}`, { type: mime })]);
+      };
+      rec.start(250);
+      el.classList.add('recording');
+      $('[data-rec]', el).hidden = false;
+      const t0 = Date.now();
+      recTimer = setInterval(() => {
+        const s = Math.floor((Date.now() - t0) / 1000);
+        $('[data-time]', el).textContent = duration(s);
+        if (s >= 300) stopVideo(); // 5 minutes maximum
+      }, 250);
+    };
+    const stopVideo = () => {
+      clearInterval(recTimer);
+      $('[data-rec]', el).hidden = true;
+      try { rec?.state === 'recording' && rec.stop(); } catch {}
+    };
+
+    // Déclencheur : mode Photo → appui = photo, appui long = vidéo ; mode Vidéo → appui = démarrer / arrêter.
+    let holding = false;
+    shutter.addEventListener('pointerdown', (e) => {
+      if (shutter.disabled) return;
+      e.preventDefault();
+      if (mode === 'video') { rec ? stopVideo() : startVideo(); return; }
+      holding = false;
+      if (allowVideo) holdTimer = setTimeout(() => { holding = true; startVideo(); }, 450);
     });
+    shutter.addEventListener('pointerup', () => {
+      if (mode === 'video' || shutter.disabled) return;
+      clearTimeout(holdTimer);
+      if (holding) stopVideo(); else photo();
+    });
+    shutter.addEventListener('pointerleave', () => { if (holding && rec) stopVideo(); clearTimeout(holdTimer); });
+
+    $('[data-close]', el).onclick = () => finish(null);
+    $('[data-flip]', el).onclick = () => { if (rec) return; facing = facing === 'user' ? 'environment' : 'user'; start(); };
+    $('[data-gallery]', el).onclick = async () => {
+      const files = await pickFiles({ accept: allowVideo ? 'image/*,video/*' : 'image/*', multiple: allowVideo });
+      if (files) finish(files);
+    };
+    $('[data-torch]', el).onclick = async () => {
+      const track = stream?.getVideoTracks()[0];
+      if (!track) return;
+      torch = !torch;
+      try { await track.applyConstraints({ advanced: [{ torch }] }); } catch { torch = false; }
+      $('[data-torch]', el).innerHTML = icon(torch ? 'flash' : 'flashOff');
+    };
+    el.querySelectorAll('[data-mode]').forEach(b => (b.onclick = () => {
+      if (rec) return;
+      mode = b.dataset.mode;
+      el.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('on', x === b));
+      el.classList.toggle('video-mode', mode === 'video');
+      shutter.setAttribute('aria-label', mode === 'video' ? 'Démarrer / arrêter la vidéo' : 'Prendre une photo');
+      const hint = $('.cam-hint', el);
+      if (hint) hint.textContent = mode === 'video' ? 'Appuyez pour démarrer, puis pour arrêter' : 'Appuyez pour une photo, maintenez pour une vidéo';
+    }));
+    document.body.append(el);
     start();
   });
 }
 
+// Compatibilité : une seule photo (profil, icônes).
+export function takePhoto({ video = true } = {}) {
+  return openCamera({ allowVideo: video }).then(f => f?.[0] || null);
+}
+
 /* ---------- Recadrage d'une photo de profil / d'icône (comme WhatsApp) ---------- */
 // Cadre circulaire : glisser pour déplacer, molette / curseur / pincement pour zoomer.
-export function cropImage(file, { title = 'Recadrer la photo', size = 640 } = {}) {
+export function cropImage(file, { title = 'Recadrer la photo', size = 640, shape = 'circle', okLabel = 'Valider' } = {}) {
   if (!file || !/^image\//.test(file.type)) return Promise.resolve(file || null);
   return new Promise(async (resolve) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
     try { img.src = url; await img.decode(); } catch { URL.revokeObjectURL(url); toast('Image illisible.', { error: true }); return resolve(null); }
     const body = h(`<div class="cropper">
-      <div class="crop-stage"><img alt="" draggable="false"><div class="crop-mask"></div></div>
+      <div class="crop-stage"><img alt="" draggable="false"><div class="crop-mask ${shape === 'square' ? 'square' : ''}"></div></div>
       <div class="crop-zoom">${icon('image', 'sm')}<input type="range" min="0" max="100" value="0" aria-label="Zoom">${icon('image')}</div>
       <p class="hint" style="text-align:center;margin:6px 0 0">Faites glisser pour cadrer, zoomez avec la molette ou le curseur.</p></div>`);
     const stage = $('.crop-stage', body), pic = $('img', body), range = $('input', body);
@@ -277,7 +399,7 @@ export function cropImage(file, { title = 'Recadrer la photo', size = 640 } = {}
     let result = null;
     modal({
       title, body,
-      buttons: [{ label: 'Annuler' }, { label: 'Valider', cls: '', onClick: async () => {
+      buttons: [{ label: 'Annuler' }, { label: okLabel, cls: '', onClick: async () => {
         const c = document.createElement('canvas');
         c.width = c.height = size;
         const g = c.getContext('2d');
