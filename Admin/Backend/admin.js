@@ -1,11 +1,18 @@
 // Espace d'administration du site (/admin) : comptes administrateurs séparés des
 // élèves, gestion des utilisateurs, classes, signalements, statuts, annonces.
+//
+// Ce module est chargé par le serveur de l'application (Application/Backend) : il
+// réutilise ses dépendances et sa logique métier — mêmes instances, même base.
 const crypto = require('crypto');
-const express = require('express');
-const C = require('./core');
-const catalog = require('./catalog');
-const { httpError, bcrypt, SECRET, jwt } = require('./auth');
-const { classView, upload } = require('./api');
+const path = require('path');
+const { createRequire } = require('module');
+const BACKEND = process.env.SCOLA_BACKEND || path.join(__dirname, '..', '..', 'Application', 'Backend');
+const backendRequire = createRequire(path.join(BACKEND, 'package.json'));
+const express = backendRequire('express');
+const C = backendRequire('./src/core');
+const catalog = backendRequire('./src/catalog');
+const { httpError, bcrypt, SECRET, jwt } = backendRequire('./src/auth');
+const { classView, upload } = backendRequire('./src/api');
 const { data, save } = C;
 
 const router = express.Router();
@@ -40,7 +47,8 @@ function createAdmin({ name, email, password, createdBy = null, mustChangePasswo
   if (Object.keys(data.admins).length) return;
   const email = process.env.SCOLA_ADMIN_EMAIL || 'daoudaprosperekone202@gmail.com';
   const fromEnv = !!process.env.SCOLA_ADMIN_PASSWORD;
-  const password = process.env.SCOLA_ADMIN_PASSWORD || crypto.randomBytes(9).toString('12345678');
+  // Mot de passe initial provisoire : il doit être changé à la première connexion.
+  const password = process.env.SCOLA_ADMIN_PASSWORD || '12345678';
   createAdmin({ name: 'Administrateur', email, password, mustChangePassword: !fromEnv });
   console.log('\n  ===== Administrateur Scola créé =====');
   console.log(`  E-mail       : ${email}`);

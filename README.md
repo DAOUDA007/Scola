@@ -10,12 +10,13 @@ qu'à **une seule classe**, définie une fois pour toutes.
 Prérequis : Node.js 20 ou plus.
 
 ```bash
-npm install          # installe les dépendances du dossier Backend
-npm start            # http://localhost:3000
+npm install          # installe les dépendances de Application/Backend
+npm start            # http://localhost:3000  (élèves)  et  http://localhost:3000/admin  (administration)
 ```
 
-(Équivalent : `cd Backend && npm install && npm start`.) Le serveur du dossier `Backend` sert aussi
-l'interface du dossier `Frontend` : une seule adresse suffit.
+(Équivalent : `cd Application/Backend && npm install && npm start`.) Un seul serveur, celui de
+`Application/Backend`, sert l'interface des élèves (`Application/Frontend`) et charge la partie
+administration (`Admin/`) : une seule adresse suffit.
 
 Sans fournisseur SMS configuré, l'application est en **mode démonstration** : le code de connexion à
 6 chiffres s'affiche dans la console du serveur et directement à l'écran.
@@ -33,8 +34,8 @@ identifiants dans la console :
 
 ```
   ===== Administrateur Scola créé =====
-  E-mail       : admin@scola.local
-  Mot de passe : (généré, affiché ici)
+  E-mail       : daoudaprosperekone202@gmail.com
+  Mot de passe : 12345678
 ```
 
 Le mot de passe est provisoire : il doit être changé à la première connexion. Pour choisir vous-même les
@@ -64,13 +65,14 @@ Ce que fait l'administration :
 | Variable | Rôle |
 |---|---|
 | `PORT` | Port HTTP (3000 par défaut) |
-| `SCOLA_DATA` | Dossier des données (`Backend/data` par défaut : base `db.json` + fichiers envoyés) |
-| `FRONTEND_DIR` | Dossier de l'interface à servir (`Frontend` par défaut) |
+| `SCOLA_DATA` | Dossier des données (`Application/Backend/data` par défaut : base `db.json` + fichiers envoyés) |
+| `FRONTEND_DIR` | Interface des élèves à servir (`Application/Frontend` par défaut) |
+| `ADMIN_DIR` | Dossier de la partie administration (`Admin` par défaut) |
 | `SCOLA_SECRET` | Clé de signature des sessions (sinon générée dans `data/secret.key`) |
 | `SCOLA_ADMIN_EMAIL`, `SCOLA_ADMIN_PASSWORD` | Identifiants du premier administrateur (utilisés seulement s'il n'en existe aucun) |
 | `SSL_KEY`, `SSL_CERT` | Chemins du certificat pour servir en HTTPS |
 | `TURN_URL`, `TURN_USER`, `TURN_PASS` | Serveur TURN pour les appels sur réseaux mobiles/pare-feu |
-| `SMS_PROVIDER` | Désactive le mode démo ; branchez votre fournisseur dans `sendSms()` (`Backend/src/auth.js`) |
+| `SMS_PROVIDER` | Désactive le mode démo ; branchez votre fournisseur dans `sendSms()` (`Application/Backend/src/auth.js`) |
 
 > **Important (téléphones)** : micro, caméra, appels et notifications exigent **HTTPS** (sauf sur
 > `localhost`). Pour tester depuis un téléphone du réseau local, servez Scola en HTTPS (`SSL_KEY`/`SSL_CERT`)
@@ -127,24 +129,32 @@ notifications (navigateur, sons, aperçu), application installable (PWA).
 ## Architecture
 
 ```
-Backend/
-  package.json  dépendances et scripts du serveur
-  data/         base db.json, fichiers envoyés, clé secrète (créé au démarrage)
-  src/
-    index.js      serveur HTTP(S), sert le Frontend, Socket.IO
-    auth.js       inscription, code SMS, PIN, connexion par QR
-    api.js        API REST des élèves (messages, discussions, classe, statuts, diffusion, profil…)
-    admin.js      API de l'espace d'administration (/api/admin)
-    tools/reset-admin.js   réinitialisation d'un mot de passe administrateur
-    realtime.js   présence, « écrit… », accusés de réception, signalisation WebRTC
-    core.js       logique partagée (vues des messages, droits, nettoyage des éphémères)
-    catalog.js    référentiel pays / cycles / filières / niveaux
-    db.js         stockage JSON persistant
-Frontend/
-  index.html, css/app.css, sw.js, manifest.webmanifest, icons/
-  js/           application des élèves (modules ES, sans étape de build)
-  admin/        espace d'administration (index.html, admin.js, admin.css) servi sur /admin
+Application/                 l'application des élèves
+  Backend/
+    package.json             dépendances et scripts du serveur
+    data/                    base db.json, fichiers envoyés, clé secrète (créé au démarrage)
+    src/
+      index.js               serveur HTTP(S), Socket.IO ; sert Application/Frontend et charge Admin/
+      auth.js                inscription, code SMS, PIN, connexion par QR
+      api.js                 API REST des élèves (messages, discussions, classe, statuts, diffusion, profil…)
+      realtime.js            présence, « écrit… », accusés de réception, signalisation WebRTC
+      core.js                logique partagée (vues des messages, droits, nettoyage des éphémères)
+      catalog.js             référentiel pays / cycles / filières / niveaux
+      db.js                  stockage JSON persistant
+  Frontend/
+    index.html, css/app.css, sw.js, manifest.webmanifest, icons/
+    js/                      application des élèves (modules ES, sans étape de build)
+Admin/                       tout ce qui concerne l'administration
+  Backend/
+    admin.js                 API de l'espace d'administration (/api/admin)
+    reset-admin.js           réinitialisation d'un mot de passe administrateur
+  Frontend/
+    index.html, admin.js, admin.css   interface d'administration, servie sur /admin
 ```
+
+La partie `Admin` n'a pas de dépendances propres : son API utilise celles d'`Application/Backend`
+(Express, base de données, logique métier), et son interface réutilise la feuille de style et les
+composants d'`Application/Frontend` (`/css/app.css`, `/js/util.js`, `/js/ui.js`).
 
 ## Limites connues et pistes pour la production
 

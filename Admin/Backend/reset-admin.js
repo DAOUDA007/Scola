@@ -1,10 +1,14 @@
 // Réinitialise (ou crée) un compte administrateur et affiche un nouveau mot de passe.
 // Usage (serveur arrêté) : npm run admin:reset -- admin@exemple.com
 const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
-const { data, flush } = require('../db');
+const path = require('path');
+const { createRequire } = require('module');
+const BACKEND = process.env.SCOLA_BACKEND || path.join(__dirname, '..', '..', 'Application', 'Backend');
+const backendRequire = createRequire(path.join(BACKEND, 'package.json'));
+const bcrypt = backendRequire('bcryptjs');
+const { data, flush } = backendRequire('./src/db');
 
-const email = String(process.argv[2] || process.env.SCOLA_ADMIN_EMAIL || 'admin@scola.local').trim().toLowerCase();
+const email = String(process.argv[2] || process.env.SCOLA_ADMIN_EMAIL || 'daoudaprosperekone202@gmail.com').trim().toLowerCase();
 const password = crypto.randomBytes(9).toString('base64url');
 data.admins ||= {};
 let a = Object.values(data.admins).find(x => x.email === email);

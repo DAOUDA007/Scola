@@ -7,12 +7,15 @@ const { Server } = require('socket.io');
 const { UPLOADS } = require('./db');
 const auth = require('./auth');
 const api = require('./api');
-const admin = require('./admin');
 const realtime = require('./realtime');
 
 const PORT = Number(process.env.PORT) || 3000;
-// Le frontend (dossier Frontend/ à la racine du projet) est servi par ce serveur.
+// Interface des élèves : Application/Frontend.
 const PUBLIC = process.env.FRONTEND_DIR || path.join(__dirname, '..', '..', 'Frontend');
+// Partie administration (dossier Admin/ à la racine du projet) : API + interface.
+const ADMIN_DIR = process.env.ADMIN_DIR || path.join(__dirname, '..', '..', '..', 'Admin');
+const admin = require(path.join(ADMIN_DIR, 'Backend', 'admin.js'));
+const ADMIN_PUBLIC = path.join(ADMIN_DIR, 'Frontend');
 
 const app = express();
 app.disable('x-powered-by');
@@ -41,11 +44,12 @@ app.use('/api', auth.router);
 app.use('/api', api.router);
 app.use('/api', (req, res) => res.status(404).json({ error: 'Route inconnue.' }));
 
+// Espace d'administration (/admin), servi depuis Admin/Frontend.
+app.use('/admin', express.static(ADMIN_PUBLIC, { index: 'index.html', maxAge: 0 }));
 app.use(express.static(PUBLIC, { index: 'index.html', maxAge: 0 }));
 app.use((req, res, next) => {
   if (req.method !== 'GET' || req.path.startsWith('/media/')) return next();
-  // Espace d'administration : application séparée dans Frontend/admin/.
-  if (req.path === '/admin' || req.path.startsWith('/admin/')) return res.sendFile(path.join(PUBLIC, 'admin', 'index.html'));
+  if (req.path === '/admin' || req.path.startsWith('/admin/')) return res.sendFile(path.join(ADMIN_PUBLIC, 'index.html'));
   res.sendFile(path.join(PUBLIC, 'index.html'));
 });
 
