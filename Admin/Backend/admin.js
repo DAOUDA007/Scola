@@ -38,9 +38,9 @@ function createAdmin({ name, email, password, createdBy = null, mustChangePasswo
 // Premier démarrage : un administrateur initial est créé et ses identifiants affichés.
 (function ensureFirstAdmin() {
   if (Object.keys(data.admins).length) return;
-  const email = process.env.SCOLA_ADMIN_EMAIL || 'admin@scola.local';
+  const email = process.env.SCOLA_ADMIN_EMAIL || 'daoudaprosperekone202@gmail.com';
   const fromEnv = !!process.env.SCOLA_ADMIN_PASSWORD;
-  const password = process.env.SCOLA_ADMIN_PASSWORD || crypto.randomBytes(9).toString('base64url');
+  const password = process.env.SCOLA_ADMIN_PASSWORD || crypto.randomBytes(9).toString('12345678');
   createAdmin({ name: 'Administrateur', email, password, mustChangePassword: !fromEnv });
   console.log('\n  ===== Administrateur Scola créé =====');
   console.log(`  E-mail       : ${email}`);
