@@ -66,6 +66,41 @@ export function render(side) {
     const q = e.target.closest('[data-inquiry]');
     if (q) return openInquiry(q.dataset.inquiry);
   });
+  const inqMenu = (schoolId, pos) => {
+    const q = O.inquiries.find(x => x.schoolId === schoolId);
+    ctxMenu(pos, [
+      { icon: 'chat', label: "Ouvrir l'échange", onClick: () => openInquiry(schoolId) },
+      { icon: 'megaphone', label: 'Voir la chaîne', onClick: () => openChannel(schoolId) },
+      '-',
+      { icon: 'trash', label: "Supprimer l'échange", danger: true, onClick: () => deleteInquiry(schoolId, q?.school?.name) },
+    ]);
+  };
+  side.addEventListener('contextmenu', (e) => {
+    const it = e.target.closest('[data-inquiry]');
+    if (!it) return;
+    e.preventDefault();
+    inqMenu(it.dataset.inquiry, { x: e.clientX, y: e.clientY });
+  });
+  let press;
+  side.addEventListener('touchstart', (e) => {
+    const it = e.target.closest('[data-inquiry]');
+    if (!it) return;
+    const t = e.touches[0];
+    press = setTimeout(() => { press = null; navigator.vibrate?.(20); inqMenu(it.dataset.inquiry, { x: t.clientX, y: t.clientY }); }, 550);
+  }, { passive: true });
+  ['touchend', 'touchmove', 'touchcancel'].forEach(ev => side.addEventListener(ev, () => clearTimeout(press), { passive: true }));
+}
+
+// Supprime l'échange pour l'élève seulement (l'établissement garde sa copie).
+async function deleteInquiry(schoolId, name = 'cet établissement') {
+  if (!(await confirmBox(`Supprimer l'échange avec ${name} ?`, 'Les messages seront supprimés de votre côté uniquement. L’établissement conserve sa copie. Vous pourrez lui écrire à nouveau à tout moment.', { ok: 'Supprimer', danger: true }))) return;
+  try {
+    await del('/orientation/inquiries/with/' + schoolId);
+    O.inquiries = O.inquiries.filter(x => x.schoolId !== schoolId);
+    if (panel?.kind === 'inquiry' && panel.id === schoolId) closePanel();
+    emit('orientation');
+    toast('Échange supprimé');
+  } catch (e) { fail(e); }
 }
 
 function suggestion(c) {
@@ -412,6 +447,7 @@ export async function openInquiry(schoolId, { postId } = {}) {
       <button class="icon-btn back" data-back title="Retour">${icon('back')}</button>
       <div class="who" data-info>${logo(c, 40)}<div class="col grow"><div class="t ellipsis">${esc(c.name)}${badgeV(c)}</div><div class="s ellipsis">Conversation privée · ${esc(c.typeLabel)}</div></div></div>
       <button class="icon-btn" data-open-channel title="Voir la chaîne">${icon('megaphone')}</button>
+      <button class="icon-btn" data-inq-menu title="Menu">${icon('more')}</button>
     </header>
     <div class="messages-area"><div class="wall"></div><div class="messages scroll" data-list><div class="messages-inner" data-inner></div></div></div>
     <div class="composer-wrap"><div data-ctx></div>
@@ -434,6 +470,12 @@ export async function openInquiry(schoolId, { postId } = {}) {
   $('[data-back]', root).onclick = () => closePanel();
   $('[data-info]', root).onclick = () => openChannelInfo(schoolId);
   $('[data-open-channel]', root).onclick = () => openChannel(schoolId);
+  $('[data-inq-menu]', root).onclick = (e) => ctxMenu(e.currentTarget, [
+    { icon: 'info', label: 'Infos de la chaîne', onClick: () => openChannelInfo(schoolId) },
+    { icon: 'megaphone', label: 'Voir la chaîne', onClick: () => openChannel(schoolId) },
+    '-',
+    { icon: 'trash', label: "Supprimer l'échange", danger: true, onClick: () => deleteInquiry(schoolId, c.name) },
+  ]);
   const send = async (extra = {}) => {
     const text = ta.value.trim();
     if (!text && !extra.media) return;
@@ -509,6 +551,11 @@ export function attach(socket) {
   socket.on('orientation:remove', ({ schoolId, id }) => {
     if (panel?.kind === 'channel' && panel.id === schoolId) { panel.posts = panel.posts.filter(x => x.id !== id); drawPosts(); }
     loadOrientation();
+  });
+  socket.on('orientation:inquiry-cleared', ({ schoolId }) => {
+    O.inquiries = O.inquiries.filter(x => x.schoolId !== schoolId);
+    if (panel?.kind === 'inquiry' && panel.id === schoolId) { panel.messages = []; drawInquiry(); }
+    emit('orientation');
   });
   socket.on('orientation:reply', ({ inquiry, message }) => {
     const i = O.inquiries.findIndex(x => x.id === inquiry.id);

@@ -85,9 +85,16 @@ function studentCard(uid) {
   return { id: u.id, name: u.name, className: cls?.name || '—', country: cls?.country || '', school: u.school || '', avatar: u.privacy?.avatar === 'all' ? u.avatar : null };
 }
 
+// Chaque côté peut supprimer l'échange pour lui seul : il ne voit plus que les messages postérieurs.
+function visibleMessages(q, side) {
+  const from = q.clearedAt?.[side] || 0;
+  return from ? q.messages.filter(m => m.createdAt > from) : q.messages;
+}
+
 function inquiryView(q, side) {
   const s = data.schools[q.schoolId];
-  const last = q.messages[q.messages.length - 1];
+  const msgs = visibleMessages(q, side);
+  const last = msgs[msgs.length - 1];
   const readAt = side === 'school' ? q.readBySchoolAt : q.readByStudentAt;
   const other = side === 'school' ? 'student' : 'school';
   return {
@@ -95,8 +102,19 @@ function inquiryView(q, side) {
     school: s ? { id: s.id, name: s.name, logo: s.logo, verified: !!s.verified } : null,
     student: side === 'school' ? studentCard(q.studentId) : undefined,
     last: last ? { from: last.from, text: last.text || (last.media ? '📎 ' + (last.media.name || 'Fichier') : ''), createdAt: last.createdAt } : null,
-    unread: q.messages.filter(m => m.from === other && m.createdAt > (readAt || 0)).length,
+    unread: msgs.filter(m => m.from === other && m.createdAt > (readAt || 0)).length,
   };
+}
+
+// Suppression d'un échange par l'élève ou l'établissement (pour lui seul).
+// Quand les deux côtés l'ont supprimé, il est effacé définitivement.
+function clearInquiry(q, side) {
+  q.clearedAt ||= {};
+  q.clearedAt[side] = C.now();
+  const last = q.messages[q.messages.length - 1]?.createdAt || 0;
+  if ((q.clearedAt.student || 0) >= last && (q.clearedAt.school || 0) >= last) delete data.inquiries[q.id];
+  save();
+  if (side === 'student') C.toUser(q.studentId, 'orientation:inquiry-cleared', { schoolId: q.schoolId });
 }
 
 /* ---------------- Notifications ---------------- */
@@ -201,7 +219,7 @@ router.get('/', (req, res) => {
   const following = mine.map(s => summary(s, uid)).sort((a, b) => (b.last?.createdAt || 0) - (a.last?.createdAt || 0));
   const suggestions = Object.values(data.schools).filter(s => active(s) && !followsOf(uid)[s.id])
     .sort((a, b) => (b.followerIds || []).length - (a.followerIds || []).length).slice(0, 20).map(s => channelView(s, uid));
-  const inquiries = Object.values(data.inquiries).filter(q => q.studentId === uid && active(data.schools[q.schoolId]))
+  const inquiries = Object.values(data.inquiries).filter(q => q.studentId === uid && active(data.schools[q.schoolId]) && visibleMessages(q, 'student').length)
     .sort((a, b) => b.updatedAt - a.updatedAt).map(q => inquiryView(q, 'student'));
   res.json({ following, suggestions, inquiries, types: SCHOOL_TYPES });
 });
@@ -310,7 +328,13 @@ router.post('/posts/:id/react', (req, res) => {
 router.get('/inquiries/with/:schoolId', (req, res) => {
   const s = getSchool(req.params.schoolId);
   const q = findInquiry(s.id, req.user.id);
-  res.json({ school: channelView(s, req.user.id), inquiry: q ? inquiryView(q, 'student') : null, messages: q ? q.messages.slice(-200) : [] });
+  res.json({ school: channelView(s, req.user.id), inquiry: q ? inquiryView(q, 'student') : null, messages: q ? visibleMessages(q, 'student').slice(-200) : [] });
+});
+
+router.delete('/inquiries/with/:schoolId', (req, res) => {
+  const q = findInquiry(req.params.schoolId, req.user.id);
+  if (q) clearInquiry(q, 'student');
+  res.json({ ok: true });
 });
 
 router.post('/inquiries/with/:schoolId/messages', (req, res) => {
@@ -332,6 +356,6 @@ router.post('/inquiries/with/:schoolId/read', (req, res) => {
 
 module.exports = {
   router, SCHOOL_TYPES, fold, active, postsOf, followsOf, getSchool, findPost, findInquiry,
-  channelView, postView, postSnippet, summary, studentCard, inquiryView,
+  channelView, postView, postSnippet, summary, studentCard, inquiryView, visibleMessages, clearInquiry,
   notifyPost, addInquiryMessage, issueActivationCode, checkActivationCode, normCode,
 };

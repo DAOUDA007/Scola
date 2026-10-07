@@ -337,7 +337,7 @@ async function messages(c, openId) {
     const s = r.inquiry.student;
     const t = $('[data-thread]', c);
     const keep = t.querySelector('textarea')?.value || '';
-    t.innerHTML = `<div class="student-card"><button class="icon-btn" data-back title="Retour">${icon('back')}</button>${avatar({ id: s.id, name: s.name, avatar: s.avatar }, 40)}<div><b>${esc(s.name)}</b><div class="faint" style="font-size:13px">${esc(s.className)}${s.country ? ' · ' + esc(s.country) : ''}${s.school ? ' · ' + esc(s.school) : ''}</div></div></div>
+    t.innerHTML = `<div class="student-card"><button class="icon-btn" data-back title="Retour">${icon('back')}</button>${avatar({ id: s.id, name: s.name, avatar: s.avatar }, 40)}<div><b>${esc(s.name)}</b><div class="faint" style="font-size:13px">${esc(s.className)}${s.country ? ' · ' + esc(s.country) : ''}${s.school ? ' · ' + esc(s.school) : ''}</div></div><span style="flex:1"></span><button class="btn text danger" data-del-thread title="Supprimer l'échange">${icon('trash', 'sm')} <span class="hide-sm">Supprimer</span></button></div>
       <div class="msgs" data-msgs>${r.messages.map(m => `<div class="bub ${m.from === 'school' ? 'me' : ''}">${m.postRef ? `<div class="quote" style="--qc:var(--brand)"><div class="q"><b>Votre publication</b><span>${esc(m.postRef.text)}</span></div></div>` : ''}${m.media ? `<a href="${esc(m.media.url)}" target="_blank" rel="noopener">📎 ${esc(m.media.name)}</a>\n` : ''}${m.text ? formatText(m.text) : ''}<small>${listTime(m.createdAt) === hhmm(m.createdAt) ? '' : esc(listTime(m.createdAt)) + ' · '}${hhmm(m.createdAt)}</small></div>`).join('')}</div>
       <div class="reply"><textarea rows="1" data-reply maxlength="4000" placeholder="Répondre à ${esc(s.name)}…"></textarea><button class="btn" data-send>${icon('send', 'sm')}</button></div>`;
     const ta = $('[data-reply]', t);
@@ -345,6 +345,16 @@ async function messages(c, openId) {
     const box = $('[data-msgs]', t);
     box.scrollTop = box.scrollHeight;
     $('[data-back]', t).onclick = () => { $('[data-inbox]', c).classList.remove('thread-open'); current = null; loadList(); };
+    $('[data-del-thread]', t).onclick = async () => {
+      if (!(await confirmBox(`Supprimer l'échange avec ${s.name} ?`, 'Les messages seront supprimés de votre côté uniquement ; l’élève conserve sa copie. Si l’élève vous écrit à nouveau, la conversation réapparaîtra avec ses nouveaux messages.', { ok: 'Supprimer', danger: true }))) return;
+      try {
+        await del('/inquiries/' + id);
+        current = null;
+        $('[data-inbox]', c).classList.remove('thread-open');
+        t.innerHTML = `<div class="empty" style="margin:auto">${icon('chat')}Sélectionnez une conversation.</div>`;
+        toast('Échange supprimé'); loadList(); refreshBadge();
+      } catch (e) { fail(e); }
+    };
     const send = async () => {
       const text = ta.value.trim();
       if (!text) return;

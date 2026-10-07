@@ -103,3 +103,4 @@ body.etab { overflow: auto; background: var(--bg); }
   .inbox.thread-open .inbox-list { display: none; }
   .inbox:not(.thread-open) .inbox-thread { display: none; }
 }
+@media (max-width: 860px) { .hide-sm { display: none; } }

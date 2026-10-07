@@ -216,7 +216,7 @@ router.get('/stats', (req, res) => {
     const k = cls?.cycleLabel || 'Autre';
     byCycle[k] = (byCycle[k] || 0) + 1;
   }
-  const inquiries = Object.values(data.inquiries).filter(q => q.schoolId === s.id);
+  const inquiries = Object.values(data.inquiries).filter(q => q.schoolId === s.id && O.visibleMessages(q, 'school').length);
   res.json({
     followers: (s.followerIds || []).length, posts: posts.length,
     views: posts.reduce((n, p) => n + (p.viewerIds || []).length, 0),
@@ -234,13 +234,18 @@ function myInquiry(req) {
 }
 
 router.get('/inquiries', (req, res) => {
-  res.json(Object.values(data.inquiries).filter(q => q.schoolId === req.school.id)
+  res.json(Object.values(data.inquiries).filter(q => q.schoolId === req.school.id && O.visibleMessages(q, 'school').length)
     .sort((a, b) => b.updatedAt - a.updatedAt).map(q => O.inquiryView(q, 'school')));
 });
 
 router.get('/inquiries/:id', (req, res) => {
   const q = myInquiry(req);
-  res.json({ inquiry: O.inquiryView(q, 'school'), messages: q.messages.slice(-300) });
+  res.json({ inquiry: O.inquiryView(q, 'school'), messages: O.visibleMessages(q, 'school').slice(-300) });
+});
+
+router.delete('/inquiries/:id', (req, res) => {
+  O.clearInquiry(myInquiry(req), 'school');
+  res.json({ ok: true });
 });
 
 router.post('/inquiries/:id/messages', (req, res) => {
