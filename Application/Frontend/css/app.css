@@ -789,3 +789,14 @@ svg.i.lg { width: 28px; height: 28px; }
 }
 @media (hover: none) { .msg .bubble .chev { display: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+/* Chaîne non suivie : contenu réservé aux abonnés */
+.ori-locked { max-width: 440px; margin: 28px auto; padding: 26px 22px; background: var(--panel); border-radius: 16px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; }
+.ori-locked h3 { margin: 8px 0 0; font-size: 19px; }
+.ori-locked p { margin: 0; font-size: 13.5px; }
+.ori-locked .desc { color: var(--text-2); font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+.ori-locked .btn { min-width: 220px; }
+.ori-locked .btn.text { height: auto; padding: 4px; }
+.lock-box { display: flex; gap: 12px; align-items: flex-start; text-align: left; background: var(--brand-soft); color: var(--brand-strong); border-radius: 12px; padding: 12px 14px; margin: 10px 0 6px; width: 100%; }
+.lock-box svg.i { flex: none; width: 22px; height: 22px; }
+.lock-box b { display: block; font-size: 14px; }
+.lock-box span { font-size: 13px; color: var(--text-2); }

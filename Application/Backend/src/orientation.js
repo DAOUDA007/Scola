@@ -210,6 +210,16 @@ function checkActivationCode(s, code) {
 
 /* ---------------- API des élèves (/api/orientation) ---------------- */
 
+// Comme sur WhatsApp : le contenu d'une chaîne (publications, médias, documents, échanges)
+// n'est accessible qu'aux élèves qui la suivent. Les autres ne voient que sa présentation.
+function requireFollow(s, uid) {
+  if (!followsOf(uid)[s.id]) {
+    const e = httpError(403, 'Suivez cette chaîne pour voir ses publications et ses documents.');
+    e.code = 'follow_required';
+    throw e;
+  }
+}
+
 const router = express.Router();
 router.use(requireAuth);
 
@@ -240,6 +250,7 @@ router.get('/channels/:id', (req, res) => {
 
 router.get('/channels/:id/posts', (req, res) => {
   const s = getSchool(req.params.id);
+  requireFollow(s, req.user.id);
   let list = postsOf(s.id);
   if (req.query.around) {
     const i = list.findIndex(p => p.id === req.query.around);
@@ -280,8 +291,9 @@ router.patch('/channels/:id', (req, res) => {
 // Lecture : remet les non-lus à zéro et compte une vue par élève sur chaque publication.
 router.post('/channels/:id/read', (req, res) => {
   const s = getSchool(req.params.id);
+  requireFollow(s, req.user.id);
   const f = followsOf(req.user.id)[s.id];
-  if (f) f.lastReadAt = C.now();
+  f.lastReadAt = C.now();
   for (const p of postsOf(s.id).slice(-60)) {
     p.viewerIds ||= [];
     if (!p.viewerIds.includes(req.user.id)) p.viewerIds.push(req.user.id);
@@ -292,6 +304,7 @@ router.post('/channels/:id/read', (req, res) => {
 
 router.get('/channels/:id/media', (req, res) => {
   const s = getSchool(req.params.id);
+  requireFollow(s, req.user.id);
   const list = [...postsOf(s.id)].reverse();
   const v = p => postView(p, req.user.id);
   res.json({
@@ -316,6 +329,7 @@ router.post('/channels/:id/report', (req, res) => {
 router.post('/posts/:id/react', (req, res) => {
   const { p, school } = findPost(req.params.id);
   if (!p || !active(school)) throw httpError(404, 'Publication introuvable.');
+  requireFollow(school, req.user.id);
   const e = String(req.body.emoji || '').slice(0, 16);
   p.reactions ||= {};
   if (!e || p.reactions[req.user.id] === e) delete p.reactions[req.user.id]; else p.reactions[req.user.id] = e;
@@ -339,6 +353,7 @@ router.delete('/inquiries/with/:schoolId', (req, res) => {
 
 router.post('/inquiries/with/:schoolId/messages', (req, res) => {
   const s = getSchool(req.params.schoolId);
+  requireFollow(s, req.user.id);
   let q = findInquiry(s.id, req.user.id);
   if (!q) {
     q = { id: C.uid('q_'), schoolId: s.id, studentId: req.user.id, createdAt: C.now(), updatedAt: C.now(), messages: [], readBySchoolAt: 0, readByStudentAt: C.now() };

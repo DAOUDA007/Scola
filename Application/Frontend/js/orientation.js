@@ -195,6 +195,13 @@ export async function openChannel(id, { post: postId, keepScroll } = {}) {
   $('[data-follow-main]', root)?.addEventListener('click', () => follow(c.id));
   $('[data-contact]', root)?.addEventListener('click', () => openInquiry(c.id));
   $('[data-menu]', root).onclick = (e) => channelMenu(c, e.currentTarget);
+  if (!c.following) {
+    // Comme sur WhatsApp : il faut suivre la chaîne pour voir et télécharger ce qu'elle publie.
+    $('[data-inner]', root).innerHTML = lockedHTML(c);
+    $('[data-follow-locked]', root).onclick = () => follow(c.id).then(() => postId && panel?.id === id && openChannel(id, { post: postId }));
+    $('[data-info-locked]', root).onclick = () => openChannelInfo(c.id);
+    return;
+  }
   try {
     const r = await get(`/orientation/channels/${id}/posts${postId ? '?around=' + encodeURIComponent(postId) : ''}`);
     if (panel?.id !== id) return;
@@ -203,6 +210,17 @@ export async function openChannel(id, { post: postId, keepScroll } = {}) {
     if (c.following) { post(`/orientation/channels/${id}/read`).catch(() => {}); const s = O.following.find(x => x.id === id); if (s) { s.unread = 0; emit('orientation'); } }
   } catch (e) { fail(e); }
   bindPosts(root);
+}
+
+function lockedHTML(c) {
+  const n = c.posts || 0;
+  return `<div class="ori-locked">${logo(c, 96)}
+    <h3>${esc(c.name)}${badgeV(c)}</h3>
+    <p class="faint">${esc(c.typeLabel)}${c.city ? ' · ' + esc(c.city) : ''} · ${esc(followersTxt(c.followers))}</p>
+    ${c.description ? `<p class="desc">${esc(c.description.slice(0, 220))}${c.description.length > 220 ? '…' : ''}</p>` : ''}
+    <div class="lock-box">${icon('lock')}<div><b>Contenu réservé aux abonnés</b><span>Suivez cette chaîne pour lire ${n === 1 ? 'sa publication' : n ? `ses ${n} publications` : 'ses publications'}, télécharger ses documents et écrire à l'établissement.</span></div></div>
+    <button class="btn" data-follow-locked>${icon('plus', 'sm')} Suivre la chaîne</button>
+    <button class="btn text" data-info-locked>Voir la présentation</button></div>`;
 }
 
 function postHTML(p, c) {
@@ -319,7 +337,7 @@ async function report(c, postId) {
 function channelMenu(c, anchor) {
   ctxMenu(anchor, [
     { icon: 'info', label: 'Infos de la chaîne', onClick: () => openChannelInfo(c.id) },
-    { icon: 'chat', label: 'Contacter l\'établissement', onClick: () => openInquiry(c.id) },
+    c.following && { icon: 'chat', label: 'Contacter l\'établissement', onClick: () => openInquiry(c.id) },
     { icon: 'forward', label: 'Transférer', onClick: () => forwardChannel(c) },
     { icon: 'share', label: 'Partager', onClick: () => shareChannel(c) },
     c.following && { icon: c.muted ? 'bell' : 'bellOff', label: c.muted ? 'Réactiver les notifications' : 'Mode silencieux', onClick: () => setMuted(c.id, !c.muted) },
@@ -337,7 +355,10 @@ export function openChannelInfo(id) {
     render: async (body) => {
       body.innerHTML = '<div class="empty">Chargement…</div>';
       let c, m;
-      try { [c, m] = await Promise.all([get('/orientation/channels/' + id), get(`/orientation/channels/${id}/media`)]); } catch (e) { body.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+      try {
+        c = await get('/orientation/channels/' + id);
+        m = c.following ? await get(`/orientation/channels/${id}/media`) : { media: [], docs: [], links: [] };
+      } catch (e) { body.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
       const long = (c.description || '').length > 220;
       const media = m.media.slice(0, 10);
       const row = (ic, title, sub = '', attrs = '', cls = '') => `<div class="menu-row ${cls}" ${attrs}>${icon(ic)}<div class="txt"><span>${title}</span>${sub ? `<small>${sub}</small>` : ''}</div></div>`;
@@ -360,8 +381,9 @@ export function openChannelInfo(id) {
           ${c.email ? row('chat', `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`, 'E-mail') : ''}
           ${c.phone ? row('phone', `<a href="tel:${esc(c.phone.replace(/\s/g, ''))}">${esc(c.phone)}</a>`, 'Téléphone') : ''}
           ${c.address ? row('pin', esc(c.address), 'Adresse') : ''}
-          ${row('chat', 'Contacter l\'établissement', 'Conversation privée', 'data-a="contact"')}</div>
-        <div class="card"><div class="card-title" data-a="media" style="cursor:pointer"><span>Médias et liens</span><span>${m.media.length + m.docs.length + m.links.length} ${icon('chevR', 'xs')}</span></div>
+          ${c.following ? row('chat', 'Contacter l\'établissement', 'Conversation privée', 'data-a="contact"') : ''}</div>
+        ${c.following ? '' : `<div class="card card-pad"><div class="lock-box" style="margin:0">${icon('lock')}<div><b>Contenu réservé aux abonnés</b><span>Suivez la chaîne pour voir ses publications, ses médias et documents, et pour écrire à l'établissement.</span></div></div></div>`}
+        <div class="card" ${c.following ? '' : 'hidden'}><div class="card-title" data-a="media" style="cursor:pointer"><span>Médias et liens</span><span>${m.media.length + m.docs.length + m.links.length} ${icon('chevR', 'xs')}</span></div>
           ${media.length ? `<div class="media-strip">${media.map((p, i) => p.type === 'video' ? `<div data-i="${i}"><video src="${esc(p.media.url)}#t=0.5" preload="metadata" muted></video></div>` : `<div data-i="${i}" style="background-image:url('${esc(p.media.url)}')"></div>`).join('')}</div>` : '<div class="card-pad faint" style="padding-top:0;font-size:13px">Aucun média.</div>'}</div>
         <div class="card">
           ${c.following ? `<label class="menu-row"><span style="color:var(--text-3)">${icon('bell')}</span><div class="txt"><span>Mode silencieux</span><small>Ne pas recevoir de notification pour les nouvelles publications</small></div><label class="switch"><input type="checkbox" data-muted ${c.muted ? 'checked' : ''}><span></span></label></label>` : ''}
@@ -378,6 +400,7 @@ export function openChannelInfo(id) {
         if (a === 'follow') return c.following ? null : follow(c.id).then(() => openChannelInfo(c.id));
         if (a === 'forward') return forwardChannel(c);
         if (a === 'share') return shareChannel(c);
+        if ((a === 'search' || a === 'media' || a === 'contact') && !c.following) return toast('Suivez d\'abord la chaîne.');
         if (a === 'search') return searchPosts(c);
         if (a === 'more') { $('[data-desc]', body).classList.remove('clamp'); e.target.remove(); }
         if (a === 'contact') return openInquiry(c.id);
@@ -497,6 +520,13 @@ export async function openInquiry(schoolId, { postId } = {}) {
     if (!files) return;
     try { toast('Envoi du fichier…'); const up = await upload(files[0]); await send({ media: up }); } catch (e) { fail(e); }
   };
+  if (!c.following) {
+    // Écrire à un établissement est réservé à ses abonnés (l'historique reste lisible).
+    const bar = h(`<div class="ori-bar"><button class="btn" data-follow-write>${icon('plus', 'sm')} Suivre la chaîne pour écrire</button></div>`);
+    $('.composer-wrap', root).replaceWith(bar);
+    bar.querySelector('[data-follow-write]').onclick = async () => { await follow(schoolId); openInquiry(schoolId); };
+    return;
+  }
   if (matchMedia('(pointer: fine)').matches) setTimeout(() => ta.focus(), 50);
 }
 
