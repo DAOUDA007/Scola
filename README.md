@@ -46,15 +46,18 @@ mot de passe provisoire est affiché ; le compte est créé s'il n'existe pas).
 
 Ce que fait l'administration :
 
-- **Tableau de bord** — utilisateurs, classes, messages, statuts, signalements, inscriptions sur 14 jours.
+- **Tableau de bord** — utilisateurs, classes, messages, établissements (et demandes à valider), signalements,
+  inscriptions sur 14 jours.
 - **Utilisateurs** — recherche, fiche détaillée, modifier le profil, **changer de classe** (élève inscrit
   par erreur), suspendre / réactiver, réinitialiser le code PIN, déconnecter tous les appareils, supprimer.
 - **Classes** — nom, description, icône, **lecture seule** (seule l'administration publie), autoriser ou non
   les membres à modifier les infos / épingler, messages éphémères, lien d'invitation, restreindre un membre,
   modération des derniers messages (suppression pour tous), suppression d'une classe vide.
-- **Signalements** — envoyés par les élèves ; supprimer le message, suspendre ou restreindre l'auteur,
-  marquer comme traité.
-- **Statuts** — voir et supprimer n'importe quel statut en ligne.
+- **Signalements** — envoyés par les élèves (messages de classe et chaînes d'orientation) ; supprimer le
+  message ou la publication, suspendre ou restreindre l'auteur, marquer comme traité.
+- **Établissements** — demandes de création de chaîne (avec le temps restant sur les 72 h), fiche complète,
+  **« Valider et envoyer le code d'activation »**, refus motivé, badge « certifié », suspension,
+  suppression, modération des publications.
 - **Annonces** — publier une annonce officielle dans une, plusieurs ou toutes les classes (notifiée aux élèves).
 - **Administrateurs** — ajouter, modifier, supprimer d'autres administrateurs (on ne peut pas se supprimer
   soi-même ni supprimer le dernier).
@@ -75,6 +78,9 @@ Ce que fait l'administration :
 | `SCOLA_ADMIN_EMAIL`, `SCOLA_ADMIN_PASSWORD` | Identifiants du premier administrateur (utilisés seulement s'il n'en existe aucun) |
 | `SSL_KEY`, `SSL_CERT` | Chemins du certificat pour servir en HTTPS |
 | `TURN_URL`, `TURN_USER`, `TURN_PASS` | Serveur TURN pour les appels sur réseaux mobiles/pare-feu |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Envoi des e-mails (codes d'activation des établissements, avis aux administrateurs). Sans eux, le code s'affiche à l'administrateur, qui le transmet lui-même |
+| `PUBLIC_URL` | Adresse publique du site, utilisée dans les e-mails (sinon déduite de la requête) |
+| `ETAB_DIR` | Dossier de l'espace établissements (`Etablissement` par défaut) |
 | `SMS_PROVIDER` | Désactive le mode démo ; branchez votre fournisseur dans `sendSms()` (`Application/Backend/src/auth.js`) |
 
 > **Important (téléphones)** : micro, caméra, appels et notifications exigent **HTTPS** (sauf sur
@@ -121,7 +127,9 @@ l'écran, une bannière interne remplace la notification (pas de doublon).
    `Données : PostgreSQL (conservées entre les redémarrages)`.
 
 Les élèves utilisent l'adresse du service (`https://votre-service.onrender.com`), l'administration
-`https://votre-service.onrender.com/admin`. Les tables (`scola_kv`, `scola_media`) sont créées
+`https://votre-service.onrender.com/admin`, les établissements `https://votre-service.onrender.com/etablissement`.
+Pour l'envoi automatique des codes d'activation, ajoutez aussi les variables `SMTP_*` (par exemple un compte
+Gmail avec un « mot de passe d'application », ou Brevo / Mailjet). Les tables (`scola_kv`, `scola_media`) sont créées
 automatiquement ; si une base locale `db.json` existe au premier lancement, elle est importée.
 
 Mot de passe administrateur perdu sur Render : depuis votre ordinateur, définissez la même
@@ -154,9 +162,25 @@ appui long sur mobile, glisser-déposer et coller des fichiers.
 position actuelle ou **en direct**, **sondages** (choix unique ou multiple, détail des votes) et
 **évènements** (cours, devoir, examen, réunion… avec réponses Présent / Peut-être / Absent et ajout à l'agenda).
 
-**Statuts** — texte (couleurs, polices), photo, vidéo ; 24 h ; vues et réactions ; réponses en privé ;
-masquer les statuts d'un camarade ; confidentialité (toute la classe / sauf… / uniquement…) ; page
-**« Mes statuts »** pour revoir et supprimer chacun de ses statuts à tout moment.
+**Orientation** (remplace les Statuts ; onglet placé après « Ma classe ») — l'équivalent des **chaînes
+WhatsApp** pour les écoles et universités. Les élèves découvrent les établissements (recherche, filtre par
+type), les **suivent**, reçoivent leurs actualités (texte, photos, vidéos, documents), réagissent, et peuvent
+**écrire à l'établissement** (bouton « Répondre » sous une publication ou « Contacter ») pour leur orientation.
+Fiche de la chaîne : description, contacts, médias et liens, recherche, mode silencieux, partage, ne plus
+suivre, signaler. L'établissement voit le nom et la classe de l'élève, **jamais son numéro**, et ne peut que
+répondre aux élèves qui l'ont contacté.
+
+**Espace Établissements** (`/etablissement`) — seuls les établissements peuvent créer une chaîne :
+1. ils remplissent la demande (nom, type, pays, ville, e-mail officiel, téléphone, responsable,
+   présentation, filières, logo) ; les administrateurs sont prévenus ;
+2. l'administrateur vérifie puis génère un **code d'activation** envoyé à l'e-mail de l'établissement
+   **sous 72 h** (l'établissement peut suivre sa demande en attendant) ;
+3. ce code — et seulement ce code (usage unique, valable 7 jours, 5 essais) — permet d'achever la création
+   du compte en choisissant un mot de passe.
+
+Une fois connecté : tableau de bord (abonnés, vues, réactions, abonnés par niveau), publications
+(créer, modifier, supprimer ; notification aux abonnés), messages des élèves, profil public de la chaîne,
+mot de passe.
 
 **Appels** — vocaux et vidéo, individuels et **de groupe** (jusqu'à 8 personnes, rejoindre un appel en
 cours), couper le micro, caméra, retourner la caméra, **partage d'écran**, réduire l'appel, journal d'appels
@@ -186,7 +210,10 @@ Application/                 l'application des élèves
     src/
       index.js               serveur HTTP(S), Socket.IO ; sert Application/Frontend et charge Admin/
       auth.js                inscription, code SMS, PIN, connexion par QR
-      api.js                 API REST des élèves (messages, discussions, classe, statuts, diffusion, profil…)
+      api.js                 API REST des élèves (messages, discussions, classe, stickers, diffusion, profil…)
+      orientation.js         chaînes d'orientation côté élèves (/api/orientation) et code d'activation
+      mail.js                envoi d'e-mails (SMTP, facultatif)
+      push.js                notifications push (Web Push)
       realtime.js            présence, « écrit… », accusés de réception, signalisation WebRTC
       core.js                logique partagée (vues des messages, droits, nettoyage des éphémères)
       catalog.js             référentiel pays / cycles / filières / niveaux
@@ -194,6 +221,9 @@ Application/                 l'application des élèves
   Frontend/
     index.html, css/app.css, sw.js, manifest.webmanifest, icons/
     js/                      application des élèves (modules ES, sans étape de build)
+Etablissement/               l'espace des établissements
+  Backend/school.js          API des établissements (/api/school) : demande, activation, publications, messages
+  Frontend/                  index.html, etab.js, etab.css, servis sur /etablissement
 Admin/                       tout ce qui concerne l'administration
   Backend/
     admin.js                 API de l'espace d'administration (/api/admin)
@@ -202,7 +232,7 @@ Admin/                       tout ce qui concerne l'administration
     index.html, admin.js, admin.css   interface d'administration, servie sur /admin
 ```
 
-La partie `Admin` n'a pas de dépendances propres : son API utilise celles d'`Application/Backend`
+Les parties `Admin` et `Etablissement` n'ont pas de dépendances propres : son API utilise celles d'`Application/Backend`
 (Express, base de données, logique métier), et son interface réutilise la feuille de style et les
 composants d'`Application/Frontend` (`/css/app.css`, `/js/util.js`, `/js/ui.js`).
 

@@ -55,6 +55,7 @@ export async function openChat(chatId, { around } = {}) {
   stopRecording(true);
   saveDraft();
   const wasOpen = !!S.current;
+  nav.resetPanel?.(); // une chaîne d'Orientation était peut-être affichée
   S.current = chatId;
   cur = { chatId, replyTo: null, editing: null, selecting: null, mentions: new Set(), pinIdx: 0, newCount: 0, atBottom: true, unreadFrom: null, unreadCount: chat.unread || 0 };
   nav.els.app.classList.add('chat-open');

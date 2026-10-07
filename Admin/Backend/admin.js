@@ -15,6 +15,8 @@ const { httpError, bcrypt, SECRET, jwt } = backendRequire('./src/auth');
 const { classView, upload } = backendRequire('./src/api');
 const { storeMedia } = backendRequire('./src/db');
 const push = backendRequire('./src/push');
+const O = backendRequire('./src/orientation');
+const mail = backendRequire('./src/mail');
 const { data, save } = C;
 
 const router = express.Router();
@@ -173,7 +175,9 @@ router.get('/stats', (req, res) => {
     online: users.filter(u => C.isOnline(u.id)).length,
     classes: classes.length,
     messages, messagesToday,
-    statuses: Object.values(data.statuses).filter(s => s.expiresAt > C.now()).length,
+    schools: Object.values(data.schools).filter(x => x.status === 'active').length,
+    schoolRequests: Object.values(data.schools).filter(x => x.status === 'pending').length,
+    posts: Object.values(data.posts).reduce((n, l) => n + l.length, 0),
     reportsPending: data.reports.filter(r => !r.resolved).length,
     admins: Object.keys(data.admins).length,
     signups,
@@ -229,7 +233,7 @@ router.get('/users/:id', (req, res) => {
     ...userRow(u),
     sessions: Object.values(data.sessions).filter(s => s.userId === u.id).sort((a, b) => b.lastActive - a.lastActive),
     messages,
-    statuses: Object.values(data.statuses).filter(s => s.userId === u.id && s.expiresAt > C.now()).length,
+    following: Object.keys(data.follows[u.id] || {}).length,
     reportsAgainst: data.reports.filter(r => r.userId === u.id).length,
     blockedCount: (u.blocked || []).length,
   });
@@ -260,7 +264,6 @@ router.patch('/users/:id', (req, res) => {
       }
       cls.memberIds.push(u.id);
       u.classId = cls.id;
-      for (const s of Object.values(data.statuses)) if (s.userId === u.id) s.classId = cls.id;
       C.systemMessage(cls.id, `${u.name} a rejoint la classe`, { meta: { joined: u.id } });
       C.toUser(u.id, 'reload', { reason: 'class' });
     }
@@ -480,11 +483,11 @@ router.get('/reports', (req, res) => {
   if (req.query.status === 'resolved') list = list.filter(r => r.resolved);
   res.json(list.slice(0, 300).map(r => ({
     ...r,
-    className: data.classes[r.classId]?.name || '—',
+    className: r.kind === 'channel' ? 'Orientation · ' + (data.schools[r.schoolId]?.name || 'établissement') : (data.classes[r.classId]?.name || '—'),
     byName: data.users[r.by]?.name || 'Inconnu',
     userName: r.userId ? (data.users[r.userId]?.name || 'Inconnu') : null,
     userSuspended: !!data.users[r.userId]?.suspended,
-    messageDeleted: r.message ? !!C.findMessage(r.message.id)?.deletedForAll : false,
+    messageDeleted: r.message ? (r.kind === 'channel' ? !O.findPost(r.message.id).p : !!C.findMessage(r.message.id)?.deletedForAll) : false,
     resolvedByName: r.resolvedBy ? (data.admins[r.resolvedBy]?.name || '—') : null,
   })));
 });
@@ -500,21 +503,88 @@ router.post('/reports/:id/resolve', (req, res) => {
   res.json(r);
 });
 
-/* ---------------- Statuts ---------------- */
+/* ---------------- Établissements (chaînes d'orientation) ---------------- */
 
-router.get('/statuses', (req, res) => {
-  res.json(Object.values(data.statuses).filter(s => s.expiresAt > C.now()).sort((a, b) => b.createdAt - a.createdAt).map(s => ({
-    id: s.id, userId: s.userId, userName: data.users[s.userId]?.name || 'Inconnu', className: data.classes[s.classId]?.name || '—',
-    type: s.type, text: s.text, bg: s.bg, caption: s.caption, media: s.media, createdAt: s.createdAt, expiresAt: s.expiresAt, views: Object.keys(s.views).length,
-  })));
+function schoolRow(s) {
+  return {
+    id: s.id, name: s.name, type: s.type, typeLabel: O.SCHOOL_TYPES[s.type] || 'Autre', country: s.country, city: s.city,
+    address: s.address, email: s.email, phone: s.phone, website: s.website, manager: s.manager, description: s.description,
+    programs: s.programs, logo: s.logo, status: s.status, verified: !!s.verified, requestedAt: s.requestedAt,
+    activatedAt: s.activatedAt || null, codeSentAt: s.codeSentAt || null, codeSentBy: s.codeSentBy || null,
+    codeEmailed: !!s.codeEmailed, codeExpires: s.codeExpires || null, rejectReason: s.rejectReason || '',
+    followers: (s.followerIds || []).length, posts: O.postsOf(s.id).length, lastLogin: s.lastLogin || null,
+    waitingHours: s.status === 'pending' ? Math.floor((C.now() - s.requestedAt) / 3600e3) : null,
+  };
+}
+function getSchoolAdmin(id) {
+  const s = data.schools[id];
+  if (!s) throw httpError(404, 'Établissement introuvable.');
+  return s;
+}
+const baseUrl = (req) => process.env.PUBLIC_URL || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
+
+router.get('/schools', (req, res) => {
+  let list = Object.values(data.schools);
+  if (req.query.status) list = list.filter(s => s.status === req.query.status);
+  const q = O.fold(req.query.q);
+  if (q) list = list.filter(s => O.fold(`${s.name} ${s.city} ${s.country} ${s.email}`).includes(q));
+  const order = { pending: 0, code_sent: 1, active: 2, suspended: 3, rejected: 4 };
+  list.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || b.requestedAt - a.requestedAt);
+  const counts = {};
+  for (const s of Object.values(data.schools)) counts[s.status] = (counts[s.status] || 0) + 1;
+  res.json({ counts, schools: list.map(schoolRow), mailConfigured: mail.configured() });
 });
 
-router.delete('/statuses/:id', (req, res) => {
-  const s = data.statuses[req.params.id];
-  if (!s) throw httpError(404, 'Statut introuvable.');
-  delete data.statuses[s.id];
+router.get('/schools/:id', (req, res) => {
+  const s = getSchoolAdmin(req.params.id);
+  res.json({ ...schoolRow(s), recentPosts: [...O.postsOf(s.id)].reverse().slice(0, 30).map(p => O.postView(p)) });
+});
+
+// Validation : génère le code d'activation et l'envoie à l'e-mail de l'établissement.
+router.post('/schools/:id/code', async (req, res) => {
+  const s = getSchoolAdmin(req.params.id);
+  if (!['pending', 'code_sent'].includes(s.status)) throw httpError(400, 'Ce compte n\'est pas en attente d\'activation.');
+  const r = await O.issueActivationCode(s, req.admin.name, baseUrl(req));
+  res.json({ ...r, school: schoolRow(s), to: s.email });
+});
+
+router.post('/schools/:id/reject', (req, res) => {
+  const s = getSchoolAdmin(req.params.id);
+  s.status = 'rejected';
+  s.rejectReason = String(req.body.reason || '').slice(0, 500);
+  delete s.codeHash;
   save();
-  C.toUsers(data.classes[s.classId]?.memberIds || [], 'status:remove', { id: s.id });
+  mail.send({ to: s.email, subject: 'Scola — votre demande de compte établissement', text: `Bonjour,\n\nVotre demande de compte pour « ${s.name} » n'a pas été retenue.${s.rejectReason ? '\nMotif : ' + s.rejectReason : ''}\n\nL'équipe Scola` });
+  res.json(schoolRow(s));
+});
+
+router.patch('/schools/:id', (req, res) => {
+  const s = getSchoolAdmin(req.params.id);
+  if (typeof req.body.verified === 'boolean') s.verified = req.body.verified;
+  if (req.body.status === 'suspended' && s.status === 'active') { s.status = 'suspended'; s.tokenVersion = (s.tokenVersion || 0) + 1; }
+  if (req.body.status === 'active' && s.status === 'suspended') s.status = 'active';
+  if (req.body.type && O.SCHOOL_TYPES[req.body.type]) s.type = req.body.type;
+  save();
+  res.json(schoolRow(s));
+});
+
+router.delete('/schools/:id', (req, res) => {
+  const s = getSchoolAdmin(req.params.id);
+  for (const uid of s.followerIds || []) if (data.follows[uid]) delete data.follows[uid][s.id];
+  for (const q of Object.values(data.inquiries)) if (q.schoolId === s.id) delete data.inquiries[q.id];
+  delete data.posts[s.id];
+  delete data.schools[s.id];
+  save();
+  res.json({ ok: true });
+});
+
+router.delete('/posts/:id', (req, res) => {
+  const { p, school } = O.findPost(req.params.id);
+  if (!p) throw httpError(404, 'Publication introuvable.');
+  const list = O.postsOf(school.id);
+  list.splice(list.indexOf(p), 1);
+  save();
+  C.toUsers(school.followerIds || [], 'orientation:remove', { schoolId: school.id, id: p.id });
   res.json({ ok: true });
 });
 

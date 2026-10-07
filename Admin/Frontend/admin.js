@@ -72,8 +72,8 @@ const NAV = [
   ['users', 'users', 'Utilisateurs'],
   ['classes', 'cap', 'Classes'],
   ['reports', 'flag', 'Signalements'],
-  ['statuses', 'status', 'Statuts'],
-  ['announce', 'megaphone', 'Annonces'],
+  ['schools', 'megaphone', 'Établissements'],
+  ['announce', 'bell', 'Annonces'],
   ['admins', 'shieldCheck', 'Administrateurs'],
   ['account', 'user', 'Mon compte'],
 ];
@@ -123,13 +123,17 @@ async function start() {
 }
 
 async function refreshBadge() {
+  const put = (k, n, bg) => {
+    const a = $(`.adm-nav a[data-k=${k}]`);
+    a?.querySelector('.badge')?.remove();
+    if (n) a?.insertAdjacentHTML('beforeend', `<span class="badge" style="background:${bg}">${n}</span>`);
+  };
   try {
     const r = await get('/reports?status=pending');
     pendingReports = r.length;
-    const a = $('.adm-nav a[data-k=reports]');
-    a?.querySelector('.badge')?.remove();
-    if (pendingReports) a?.insertAdjacentHTML('beforeend', `<span class="badge" style="background:var(--danger)">${pendingReports}</span>`);
+    put('reports', pendingReports, 'var(--danger)');
   } catch {}
+  try { const s = await get('/schools?status=pending'); put('schools', s.counts.pending || 0, 'var(--brand)'); } catch {}
 }
 setInterval(() => { if (tok.get() && ME) refreshBadge(); }, 30000);
 
@@ -146,10 +150,11 @@ function route() {
   old.replaceWith(c);
   window.scrollTo(0, 0);
   c.innerHTML = '<div class="empty">Chargement…</div>';
-  const pages = { dashboard, users, classes, reports, statuses, announce, admins, account };
+  const pages = { dashboard, users, classes, reports, schools, announce, admins, account };
   const fn = pages[page] || dashboard;
   if (page === 'users' && id) return userDetail(c, id);
   if (page === 'classes' && id) return classDetail(c, id);
+  if (page === 'schools' && id) return schoolDetail(c, id);
   fn(c);
 }
 addEventListener('hashchange', route);
@@ -169,7 +174,7 @@ async function dashboard(c) {
       <div class="stat"><small>${icon('users', 'xs')} Utilisateurs</small><b>${num(s.users)}</b><span class="sub">${num(s.online)} en ligne</span></div>
       <div class="stat"><small>${icon('cap', 'xs')} Classes</small><b>${num(s.classes)}</b><span class="sub">groupes actifs</span></div>
       <div class="stat"><small>${icon('chat', 'xs')} Messages</small><b>${num(s.messages)}</b><span class="sub">${num(s.messagesToday)} aujourd'hui</span></div>
-      <div class="stat"><small>${icon('status', 'xs')} Statuts en ligne</small><b>${num(s.statuses)}</b><span class="sub">sur 24 h</span></div>
+      <div class="stat ${s.schoolRequests ? 'alert' : ''}"><small>${icon('megaphone', 'xs')} Établissements</small><b>${num(s.schools)}</b><span class="sub">${s.schoolRequests ? `<a href="#/schools">${num(s.schoolRequests)} demande(s) à valider</a>` : `${num(s.posts)} publication(s)`}</span></div>
       <div class="stat ${s.reportsPending ? 'alert' : ''}"><small>${icon('flag', 'xs')} Signalements à traiter</small><b>${num(s.reportsPending)}</b><span class="sub"><a href="#/reports">Voir</a></span></div>
       <div class="stat"><small>${icon('ban', 'xs')} Comptes suspendus</small><b>${num(s.suspended)}</b><span class="sub">${num(s.admins)} administrateur(s)</span></div>
     </div>
@@ -263,7 +268,7 @@ async function userDetail(c, id) {
         <dt>Inscription</dt><dd>${esc(fullDate(u.createdAt))}</dd>
         <dt>Dernière activité</dt><dd>${u.online ? 'En ligne maintenant' : esc(fullDate(u.lastSeen))}</dd>
         <dt>Messages envoyés</dt><dd>${num(u.messages)}</dd>
-        <dt>Statuts en ligne</dt><dd>${num(u.statuses)}</dd>
+        <dt>Chaînes suivies</dt><dd>${num(u.following)}</dd>
         <dt>Signalements reçus</dt><dd>${num(u.reportsAgainst)}</dd>
         <dt>Vérification 2 étapes</dt><dd>${u.hasPin ? 'Activée' : 'Désactivée'}</dd>
         ${u.suspended ? `<dt>Suspension</dt><dd>${esc(fullDate(u.suspended.at))}${u.suspended.reason ? ' — ' + esc(u.suspended.reason) : ''}</dd>` : ''}
@@ -298,7 +303,7 @@ async function userDetail(c, id) {
         }
       }
       if (a === 'delete') {
-        if (!(await confirmBox(`Supprimer le compte de ${u.name} ?`, 'Profil, statuts et appareils seront supprimés et la personne quittera sa classe. Ses messages restent affichés sous « Compte supprimé ». Action irréversible.', { ok: 'Supprimer', danger: true }))) return;
+        if (!(await confirmBox(`Supprimer le compte de ${u.name} ?`, 'Profil, abonnements et appareils seront supprimés et la personne quittera sa classe. Ses messages restent affichés sous « Compte supprimé ». Action irréversible.', { ok: 'Supprimer', danger: true }))) return;
         await del('/users/' + u.id);
         toast('Compte supprimé');
         location.hash = '#/users';
@@ -515,11 +520,12 @@ async function reports(c) {
     $('[data-l]', c).innerHTML = list.length ? list.map(r => `<div class="report ${r.resolved ? 'done' : ''}" data-r="${r.id}">
       <div class="row" style="flex-wrap:wrap"><span class="tag ${r.resolved ? '' : 'red'}">${r.resolved ? 'Traité' : 'À traiter'}</span><span class="tag warn">${esc(r.reason || 'Sans motif')}</span>
         <span class="grow faint" style="font-size:13px">Signalé par <b>${esc(r.byName)}</b> · ${esc(r.className)} · ${esc(relTime(r.at))}</span></div>
-      <p style="margin:10px 0 6px">Personne signalée : ${r.userId ? `<a href="#/users/${r.userId}">${esc(r.userName)}</a>${r.userSuspended ? ' <span class="tag red">Suspendu</span>' : ''}` : '—'}</p>
-      ${r.message ? `<div class="quote" style="margin:6px 0 10px;--qc:var(--danger)"><div class="q"><b>Message du ${esc(fullDate(r.message.at))}${r.messageDeleted ? ' — supprimé' : ''}</b><span>${esc(r.message.text)}</span></div>${r.message.media && /\.(jpe?g|png|webp|gif)$/i.test(r.message.media) ? `<img src="${esc(r.message.media)}" alt="">` : ''}</div>` : ''}
+      <p style="margin:10px 0 6px">${r.kind === 'channel' ? `Chaîne signalée : <a href="#/schools/${r.schoolId}">${esc(r.className.replace(/^Orientation · /, ''))}</a>` : `Personne signalée : ${r.userId ? `<a href="#/users/${r.userId}">${esc(r.userName)}</a>${r.userSuspended ? ' <span class="tag red">Suspendu</span>' : ''}` : '—'}`}</p>
+      ${r.message ? `<div class="quote" style="margin:6px 0 10px;--qc:var(--danger)"><div class="q"><b>${r.kind === 'channel' ? 'Publication' : 'Message'} du ${esc(fullDate(r.message.at))}${r.messageDeleted ? ' — supprimé' : ''}</b><span>${esc(r.message.text)}</span></div>${r.message.media && /\.(jpe?g|png|webp|gif)$/i.test(r.message.media) ? `<img src="${esc(r.message.media)}" alt="">` : ''}</div>` : ''}
       ${r.resolved ? `<div class="faint" style="font-size:12.5px">Traité par ${esc(r.resolvedByName || '—')}${r.resolvedAt ? ' le ' + esc(fullDate(r.resolvedAt)) : ''}</div>` : ''}
       <div class="actions" style="margin-top:8px">
-        ${r.message && !r.messageDeleted ? `<button class="btn ghost" data-act="delmsg" data-m="${r.message.id}">Supprimer le message</button>` : ''}
+        ${r.message && !r.messageDeleted ? `<button class="btn ghost" data-act="${r.kind === 'channel' ? 'delpost' : 'delmsg'}" data-m="${r.message.id}">${r.kind === 'channel' ? 'Supprimer la publication' : 'Supprimer le message'}</button>` : ''}
+        ${r.kind === 'channel' && r.schoolId ? `<a class="btn ghost" href="#/schools/${r.schoolId}">Voir l'établissement</a>` : ''}
         ${r.userId && !r.userSuspended ? `<button class="btn ghost" data-act="suspend" data-u="${r.userId}">Suspendre l'auteur</button>` : ''}
         ${r.userId ? `<button class="btn ghost" data-act="restrict" data-u="${r.userId}" data-c="${r.classId}">Restreindre dans la classe</button>` : ''}
         <button class="btn ${r.resolved ? 'ghost' : ''}" data-act="${r.resolved ? 'reopen' : 'resolve'}">${r.resolved ? 'Rouvrir' : 'Marquer comme traité'}</button></div></div>`).join('')
@@ -531,6 +537,7 @@ async function reports(c) {
     if (!b) return;
     const id = b.closest('[data-r]').dataset.r;
     try {
+      if (b.dataset.act === 'delpost') { if (!(await confirmBox('Supprimer cette publication ?', 'Elle disparaîtra de la chaîne pour tous les abonnés.', { ok: 'Supprimer', danger: true }))) return; await del('/posts/' + b.dataset.m); toast('Publication supprimée'); }
       if (b.dataset.act === 'delmsg') { if (!(await confirmBox('Supprimer ce message pour tous ?', '', { ok: 'Supprimer', danger: true }))) return; await del('/messages/' + b.dataset.m); toast('Message supprimé'); }
       if (b.dataset.act === 'suspend') { const reason = await promptBox('Suspendre ce compte ?', { label: 'Motif', max: 300 }); if (reason === null) return; await post(`/users/${b.dataset.u}/suspend`, { reason }); toast('Compte suspendu'); }
       if (b.dataset.act === 'restrict') { await post(`/classes/${b.dataset.c}/restrict/${b.dataset.u}`); toast('Membre restreint'); }
@@ -543,25 +550,122 @@ async function reports(c) {
   load();
 }
 
-/* ---------------- Statuts ---------------- */
-async function statuses(c) {
-  setTitle('Statuts');
+/* ---------------- Établissements (chaînes d'orientation) ---------------- */
+const SCH = { pending: ['À valider', 'warn'], code_sent: ['Code envoyé', ''], active: ['Actif', 'ok'], suspended: ['Suspendu', 'red'], rejected: ['Refusé', 'red'] };
+const schTag = (st) => `<span class="tag ${SCH[st]?.[1] || ''}">${SCH[st]?.[0] || esc(st)}</span>`;
+const waitTag = (s) => s.status !== 'pending' ? '' : `<span class="tag ${s.waitingHours >= 48 ? 'red' : ''}" title="Le code doit être envoyé sous 72 h">${s.waitingHours >= 72 ? 'Délai de 72 h dépassé' : `${72 - s.waitingHours} h restantes`}</span>`;
+let schoolFilter = 'pending', schoolQ = '';
+
+async function schools(c) {
+  setTitle('Établissements');
+  c.innerHTML = `<div class="toolbar"><div class="search-box">${icon('search', 'sm')}<input placeholder="Nom, ville, pays ou e-mail" data-q value="${esc(schoolQ)}"></div><div class="seg" data-seg></div></div>
+    <p class="muted" data-mail style="margin-top:0;font-size:13.5px"></p><section class="panel"><div class="tbl-wrap" data-t></div></section>`;
   const load = async () => {
-    const list = await get('/statuses').catch(fail);
-    if (!list) return;
-    c.innerHTML = list.length ? `<p class="muted" style="margin-top:0">${num(list.length)} statut(s) en ligne. Ils disparaissent automatiquement après 24 heures.</p><div class="status-grid">${list.map(s => `
-      <div class="status-card"><div class="prev" style="${s.type === 'text' ? `background:${esc(s.bg)}` : s.type === 'image' ? `background-image:url('${esc(s.media.url)}')` : ''}">${s.type === 'text' ? esc(s.text) : s.type === 'video' ? `<video src="${esc(s.media.url)}#t=0.5" preload="metadata" muted></video>` : ''}</div>
-        <div class="info"><b>${esc(s.userName)}</b><div class="faint">${esc(s.className)} · ${esc(relTime(s.createdAt))} · ${s.views} vue(s)</div>${s.caption ? `<div style="margin-top:4px">${esc(s.caption)}</div>` : ''}
-        <div class="actions" style="margin-top:8px"><a class="btn ghost" href="#/users/${s.userId}">Profil</a><button class="btn danger" data-del="${s.id}">Supprimer</button></div></div></div>`).join('')}</div>`
-      : `<div class="empty">${icon('status')}Aucun statut en ligne.</div>`;
+    const r = await get(`/schools?status=${schoolFilter}&q=${encodeURIComponent(schoolQ)}`).catch(fail);
+    if (!r) return;
+    const total = Object.values(r.counts).reduce((a, b) => a + b, 0);
+    $('[data-seg]', c).innerHTML = [['', 'Tous', total], ...Object.keys(SCH).map(k => [k, SCH[k][0], r.counts[k] || 0])]
+      .map(([k, l, n]) => `<button class="${k === schoolFilter ? 'on' : ''}" data-st="${k}">${l} <span class="faint">${n}</span></button>`).join('');
+    $('[data-mail]', c).innerHTML = r.mailConfigured ? `${icon('check', 'xs')} Envoi d'e-mails configuré : le code part automatiquement à l'adresse de l'établissement.`
+      : `${icon('info', 'xs')} Envoi d'e-mails non configuré (variables SMTP_*) : après validation, le code s'affiche et vous l'envoyez vous-même depuis votre messagerie.`;
+    $('[data-t]', c).innerHTML = r.schools.length ? `<table class="tbl"><thead><tr><th>Établissement</th><th>Type</th><th>Lieu</th><th>Demande</th><th>Statut</th></tr></thead><tbody>
+      ${r.schools.map(s => `<tr data-go="#/schools/${s.id}"><td><div class="cell-user">${avatar({ id: s.id, name: s.name, avatar: s.logo }, 34)}<div><b>${esc(s.name)}</b>${s.verified ? ` ${icon('check', 'xs')}` : ''}<div class="faint" style="font-size:12px">${esc(s.email)}</div></div></div></td>
+        <td>${esc(s.typeLabel)}</td><td>${esc(s.city)}, ${esc(s.country)}</td><td>${esc(listTime(s.requestedAt))}</td><td>${schTag(s.status)} ${waitTag(s)}</td></tr>`).join('')}</tbody></table>`
+      : `<div class="empty">${icon('megaphone')}Aucun établissement${schoolFilter ? ' dans cette catégorie' : ''}.</div>`;
   };
-  c.onclick = async (e) => {
-    const b = e.target.closest('[data-del]');
-    if (!b) return;
-    if (!(await confirmBox('Supprimer ce statut ?', 'Il disparaîtra pour tous les membres.', { ok: 'Supprimer', danger: true }))) return;
-    try { await del('/statuses/' + b.dataset.del); toast('Statut supprimé'); load(); } catch (er) { fail(er); }
-  };
+  $('[data-seg]', c).onclick = (e) => { const b = e.target.closest('[data-st]'); if (b) { schoolFilter = b.dataset.st; load(); } };
+  $('[data-q]', c).oninput = debounce((e) => { schoolQ = e.target.value; load(); }, 250);
+  bindRows(c);
   load();
+}
+
+function showCode(r) {
+  const mailto = `mailto:${encodeURIComponent(r.to)}?subject=${encodeURIComponent(r.subject || 'Scola — code d\'activation')}&body=${encodeURIComponent(r.text || r.code)}`;
+  const m = modal({
+    title: 'Code d\'activation généré',
+    body: `<p style="margin-top:0">${r.emailed ? `Le code a été envoyé par e-mail à <b>${esc(r.to)}</b>.` : `<b>L'e-mail n'a pas pu être envoyé automatiquement</b>${r.reason ? ` (${esc(r.reason)})` : ''}. Transmettez ce code à <b>${esc(r.to)}</b> :`}</p>
+      <div class="code-box" data-code>${esc(r.code)}</div>
+      <p class="faint" style="font-size:13px">Valable 7 jours, à usage unique. Il ne sera plus affiché ensuite : en cas de perte, générez-en un nouveau (l'ancien sera annulé).</p>
+      <div class="actions" style="justify-content:flex-end;margin-top:14px">
+        ${r.emailed ? '' : `<a class="btn ghost" href="${esc(mailto)}">${icon('ext', 'sm')} Ouvrir ma messagerie</a>`}
+        <button class="btn ghost" data-copy>Copier le code</button><button class="btn" data-done>Terminé</button></div>`,
+  });
+  $('[data-copy]', m.el).onclick = () => { copyText(r.code); toast('Code copié'); };
+  $('[data-done]', m.el).onclick = () => m.close();
+  return m;
+}
+
+async function schoolDetail(c, id) {
+  setTitle('Établissement');
+  let s;
+  try { s = await get('/schools/' + id); } catch (e) { c.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  setTitle(s.name);
+  const link = (u) => u ? `<a href="${esc(/^https?:/.test(u) ? u : 'https://' + u)}" target="_blank" rel="noopener">${esc(u)}</a>` : '—';
+  c.innerHTML = `<p><a href="#/schools">← Tous les établissements</a></p>
+    <section class="panel"><div class="pad row" style="gap:18px;flex-wrap:wrap">${avatar({ id: s.id, name: s.name, avatar: s.logo }, 84)}
+      <div class="grow"><h2 style="margin:0;font-size:22px">${esc(s.name)}${s.verified ? ` ${icon('check', 'sm')}` : ''}</h2><div class="muted">${esc(s.typeLabel)} · ${esc(s.city)}, ${esc(s.country)}</div>
+      <div style="margin-top:6px">${schTag(s.status)} ${waitTag(s)}${s.verified ? ' <span class="tag ok">Certifié</span>' : ''}</div></div></div></section>
+    <div class="grid2">
+      <section class="panel"><h2>Informations fournies</h2><div class="pad"><dl class="kv">
+        <dt>E-mail officiel</dt><dd><a href="mailto:${esc(s.email)}">${esc(s.email)}</a></dd>
+        <dt>Téléphone</dt><dd>${esc(s.phone || '—')}</dd>
+        <dt>Adresse</dt><dd>${esc(s.address || '—')}</dd>
+        <dt>Site web</dt><dd>${link(s.website)}</dd>
+        <dt>Responsable</dt><dd>${esc(s.manager?.name || '—')}${s.manager?.role ? ' — ' + esc(s.manager.role) : ''}</dd>
+        <dt>Demande reçue</dt><dd>${esc(fullDate(s.requestedAt))}</dd>
+        ${s.codeSentAt ? `<dt>Code envoyé</dt><dd>${esc(fullDate(s.codeSentAt))} par ${esc(s.codeSentBy || '—')}${s.codeEmailed ? ' (e-mail)' : ' (à transmettre manuellement)'}${s.status === 'code_sent' && s.codeExpires ? `<br><span class="faint">Expire le ${esc(fullDate(s.codeExpires))}</span>` : ''}</dd>` : ''}
+        ${s.activatedAt ? `<dt>Activé le</dt><dd>${esc(fullDate(s.activatedAt))}</dd>` : ''}
+        ${s.lastLogin ? `<dt>Dernière connexion</dt><dd>${esc(fullDate(s.lastLogin))}</dd>` : ''}
+        ${s.rejectReason ? `<dt>Motif du refus</dt><dd>${esc(s.rejectReason)}</dd>` : ''}
+        <dt>Abonnés</dt><dd>${num(s.followers)}</dd>
+        <dt>Publications</dt><dd>${num(s.posts)}</dd>
+      </dl></div></section>
+      <section class="panel"><h2>Actions</h2><div class="pad actions" style="flex-direction:column;align-items:stretch">
+        ${s.status === 'pending' ? `<button class="btn" data-a="code">${icon('key', 'sm')} Valider et envoyer le code d'activation</button>` : ''}
+        ${s.status === 'code_sent' ? `<button class="btn ghost" data-a="code">${icon('key', 'sm')} Générer un nouveau code</button>` : ''}
+        ${['pending', 'code_sent'].includes(s.status) ? `<button class="btn danger" data-a="reject">${icon('x', 'sm')} Refuser la demande</button>` : ''}
+        ${['active', 'suspended'].includes(s.status) ? `<button class="btn ghost" data-a="verify">${icon('check', 'sm')} ${s.verified ? 'Retirer le badge certifié' : 'Certifier l\'établissement'}</button>
+          <button class="btn ${s.status === 'suspended' ? '' : 'danger'}" data-a="suspend">${icon('shield', 'sm')} ${s.status === 'suspended' ? 'Réactiver la chaîne' : 'Suspendre la chaîne'}</button>` : ''}
+        <button class="btn danger" data-a="delete">${icon('trash', 'sm')} Supprimer définitivement</button>
+        <p class="faint" style="font-size:12.5px;margin:4px 0 0">Le code d'activation est le seul moyen pour l'établissement d'achever la création de son compte. Il doit lui parvenir sous 72 h.</p>
+      </div></section></div>
+    <section class="panel"><h2>Présentation</h2><div class="pad" style="white-space:pre-wrap">${esc(s.description || '—')}${s.programs ? `\n\n<b>Filières et formations</b>\n${esc(s.programs)}` : ''}</div></section>
+    <section class="panel"><h2>Publications récentes (${num(s.posts)})</h2>
+      ${s.recentPosts.length ? s.recentPosts.map(p => `<div class="report"><div class="row"><span class="grow faint" style="font-size:13px">${esc(fullDate(p.createdAt))} · ${num(p.views)} vue(s)</span><button class="btn ghost" data-delpost="${p.id}" style="height:32px">Supprimer</button></div>
+        ${p.media && p.type === 'image' ? `<img src="${esc(p.media.url)}" alt="" style="max-width:220px;border-radius:10px;margin-top:8px;display:block">` : p.media ? `<p style="margin:8px 0 0">📎 <a href="${esc(p.media.url)}" target="_blank" rel="noopener">${esc(p.media.name || 'Fichier')}</a></p>` : ''}
+        ${p.text ? `<p style="margin:8px 0 0;white-space:pre-wrap">${esc(p.text)}</p>` : ''}</div>`).join('') : '<div class="empty">Aucune publication.</div>'}</section>`;
+  c.onclick = async (e) => {
+    const dp = e.target.closest('[data-delpost]');
+    const a = e.target.closest('[data-a]')?.dataset.a;
+    try {
+      if (dp) {
+        if (!(await confirmBox('Supprimer cette publication ?', 'Elle disparaîtra de la chaîne pour tous les abonnés.', { ok: 'Supprimer', danger: true }))) return;
+        await del('/posts/' + dp.dataset.delpost); toast('Publication supprimée'); return schoolDetail(c, id);
+      }
+      if (!a) return;
+      if (a === 'code') {
+        if (!(await confirmBox(s.status === 'pending' ? `Valider « ${s.name} » ?` : 'Générer un nouveau code ?', `Un code d'activation à usage unique sera envoyé à ${s.email}.${s.status === 'code_sent' ? ' L\'ancien code sera annulé.' : ''}`, { ok: 'Générer le code' }))) return;
+        const r = await post(`/schools/${id}/code`);
+        showCode(r);
+        refreshBadge();
+      }
+      if (a === 'reject') {
+        const reason = await promptBox(`Refuser « ${s.name} » ?`, { label: 'Motif (communiqué à l\'établissement)', placeholder: 'Ex. informations invérifiables', max: 500, multiline: true });
+        if (reason === null) return;
+        await post(`/schools/${id}/reject`, { reason }); toast('Demande refusée'); refreshBadge();
+      }
+      if (a === 'verify') { await patch('/schools/' + id, { verified: !s.verified }); toast(s.verified ? 'Badge retiré' : 'Établissement certifié'); }
+      if (a === 'suspend') {
+        if (s.status !== 'suspended' && !(await confirmBox('Suspendre cette chaîne ?', 'Elle sera masquée pour les élèves et l\'établissement ne pourra plus se connecter.', { ok: 'Suspendre', danger: true }))) return;
+        await patch('/schools/' + id, { status: s.status === 'suspended' ? 'active' : 'suspended' }); toast(s.status === 'suspended' ? 'Chaîne réactivée' : 'Chaîne suspendue');
+      }
+      if (a === 'delete') {
+        if (!(await confirmBox(`Supprimer « ${s.name} » ?`, 'Le compte, la chaîne, ses publications et ses échanges avec les élèves seront supprimés. Action irréversible.', { ok: 'Supprimer', danger: true }))) return;
+        await del('/schools/' + id); toast('Établissement supprimé'); refreshBadge(); location.hash = '#/schools'; return;
+      }
+      schoolDetail(c, id);
+    } catch (er) { fail(er); }
+  };
 }
 
 /* ---------------- Administrateurs ---------------- */

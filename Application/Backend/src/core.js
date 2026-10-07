@@ -31,7 +31,7 @@ function defaultSettings() {
     wallpaper: null,
     fontSize: 'medium',
     enterToSend: true,
-    notifications: { messages: true, groups: true, calls: true, status: true, sound: true, preview: true },
+    notifications: { messages: true, groups: true, calls: true, orientation: true, sound: true, preview: true },
     mutedStatuses: [],
     archiveKeep: true,
   };
@@ -79,6 +79,11 @@ function ensureClass(r) {
     c.restricted ||= [];
   }
   data.admins ||= {};
+  // Les statuts sont remplacés par l'onglet Orientation : réglage de notification renommé.
+  for (const u of Object.values(data.users)) {
+    const n = u.settings?.notifications;
+    if (n && !('orientation' in n)) { n.orientation = n.status !== false; delete n.status; changed = true; }
+  }
   // Personne ne crée un groupe de classe : on retire les anciens messages « … a créé le groupe ».
   for (const [chatId, list] of Object.entries(data.messages)) {
     if (data.chats[chatId]?.type !== 'group') continue;

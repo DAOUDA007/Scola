@@ -256,34 +256,6 @@ function classView(cls, viewerId) {
   };
 }
 
-function canSeeStatus(owner, viewerId) {
-  if (owner.id === viewerId) return true;
-  if (!data.users[viewerId] || data.users[viewerId].classId !== owner.classId) return false;
-  if (C.blocks(owner.id, viewerId) || C.blocks(viewerId, owner.id)) return false;
-  const p = owner.privacy.status;
-  if (p.mode === 'except') return !p.list.includes(viewerId);
-  if (p.mode === 'only') return p.list.includes(viewerId);
-  return true;
-}
-
-function statusView(s, viewerId) {
-  const own = s.userId === viewerId;
-  return {
-    id: s.id, userId: s.userId, type: s.type, text: s.text, bg: s.bg, font: s.font, media: s.media,
-    caption: s.caption, createdAt: s.createdAt, expiresAt: s.expiresAt,
-    viewed: !!s.views[viewerId],
-    views: own ? Object.entries(s.views).map(([userId, at]) => ({ userId, at, reaction: s.reactions[userId] || null })) : undefined,
-    myReaction: s.reactions[viewerId] || null,
-  };
-}
-
-function myStatuses(user) {
-  return Object.values(data.statuses)
-    .filter(s => s.expiresAt > C.now() && canSeeStatus(data.users[s.userId], user.id))
-    .sort((a, b) => a.createdAt - b.createdAt)
-    .map(s => statusView(s, user.id));
-}
-
 function callView(c, viewerId) {
   return {
     id: c.id, chatId: c.chatId, video: c.video, callerId: c.callerId, startedAt: c.startedAt,
@@ -311,7 +283,6 @@ router.get('/bootstrap', (req, res) => {
     class: cls && classView(cls, u.id),
     members: (cls?.memberIds || []).map(id => C.publicUser(data.users[id], u.id)).filter(Boolean),
     chats: myChats(u),
-    statuses: myStatuses(u),
     calls: Object.values(data.calls).filter(c => c.invited.includes(u.id) && !(c.hiddenFor || []).includes(u.id))
       .sort((a, b) => b.startedAt - a.startedAt).slice(0, 200).map(c => callView(c, u.id)),
     session: req.session.id,
@@ -953,74 +924,6 @@ router.patch('/broadcasts/:id', (req, res) => {
   res.json(s);
 });
 
-/* ---------------- Statuts (24 h) ---------------- */
-
-router.get('/statuses', (req, res) => res.json(myStatuses(req.user)));
-
-router.post('/statuses', (req, res) => {
-  const b = req.body;
-  const type = ['text', 'image', 'video', 'voice'].includes(b.type) ? b.type : 'text';
-  const s = {
-    id: C.uid('st_'), userId: req.user.id, classId: req.user.classId, type, createdAt: C.now(),
-    expiresAt: C.now() + 24 * 3600e3, views: {}, reactions: {},
-    text: String(b.text || '').slice(0, 700), bg: /^#[0-9a-f]{6}$/i.test(b.bg) ? b.bg : '#EA580C',
-    font: Number(b.font) % 5 || 0, caption: String(b.caption || '').slice(0, 700),
-    media: type === 'text' ? null : cleanMedia(b.media),
-  };
-  if (type === 'text' && !s.text.trim()) throw httpError(400, 'Statut vide.');
-  data.statuses[s.id] = s;
-  save();
-  for (const id of classmates(req.user)) {
-    if (C.isOnline(id) && canSeeStatus(req.user, id)) C.toUser(id, 'status:new', statusView(s, id));
-  }
-  res.json(statusView(s, req.user.id));
-});
-
-function getStatus(req) {
-  const s = data.statuses[req.params.id];
-  if (!s || s.expiresAt < C.now() || !canSeeStatus(data.users[s.userId], req.user.id)) throw httpError(404, 'Statut introuvable.');
-  return s;
-}
-
-router.post('/statuses/:id/view', (req, res) => {
-  const s = getStatus(req);
-  if (s.userId !== req.user.id && !s.views[req.user.id]) {
-    s.views[req.user.id] = C.now();
-    save();
-    C.toUser(s.userId, 'status:update', statusView(s, s.userId));
-  }
-  res.json({ ok: true });
-});
-
-router.post('/statuses/:id/react', (req, res) => {
-  const s = getStatus(req);
-  const e = String(req.body.emoji || '').slice(0, 16);
-  if (e) s.reactions[req.user.id] = e; else delete s.reactions[req.user.id];
-  s.views[req.user.id] ||= C.now();
-  save();
-  C.toUser(s.userId, 'status:update', statusView(s, s.userId));
-  res.json({ ok: true });
-});
-
-router.post('/statuses/:id/reply', (req, res) => {
-  const s = getStatus(req);
-  if (s.userId === req.user.id) throw httpError(400, 'Impossible de répondre à votre propre statut.');
-  const chat = C.ensureDm(req.user.id, s.userId);
-  const m = sendTo(req.user, chat, { type: 'text', text: req.body.text }, {
-    statusRef: { id: s.id, ownerId: s.userId, type: s.type, text: (s.text || s.caption || '').slice(0, 120), bg: s.bg, thumb: s.type === 'image' ? s.media.url : null },
-  });
-  res.json(C.msgView(m, req.user.id));
-});
-
-router.delete('/statuses/:id', (req, res) => {
-  const s = data.statuses[req.params.id];
-  if (!s || s.userId !== req.user.id) throw httpError(404, 'Statut introuvable.');
-  delete data.statuses[s.id];
-  save();
-  C.toUsers(classmates(req.user), 'status:remove', { id: s.id });
-  res.json({ ok: true });
-});
-
 /* ---------------- Journal d'appels ---------------- */
 
 router.get('/calls', (req, res) => {
@@ -1038,4 +941,4 @@ router.delete('/calls', (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { router, callView, canSeeStatus, classView, upload };
+module.exports = { router, callView, classView, upload, selfView, isMedia, cleanMedia, fetchPreview };

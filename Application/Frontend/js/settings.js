@@ -6,7 +6,6 @@ import { toast, fail, modal, confirmBox, choose, promptBox, pickMembers, pushPag
 import { nav } from './nav.js';
 import { live, openStarred, toggleBlock } from './chatlist.js';
 import { WALLPAPERS, wallStyle } from './conversation.js';
-import { statusPrivacy } from './status.js';
 import { openViewer } from './media.js';
 import { DIAL, deviceName } from './auth.js';
 import { pushSupported, enablePush, pushState } from './push.js';
@@ -303,7 +302,6 @@ function privacyPage() {
           ${row('user', 'Photo de profil', lab(p.avatar), 'data-a="avatar"')}
           ${row('info', 'Infos', lab(p.about), 'data-a="about"')}
           ${row('phone', 'Numéro de téléphone', lab(p.phone), 'data-a="phone"')}
-          ${row('status', 'Statut', p.status.mode === 'all' ? 'Ma classe' : p.status.mode === 'except' ? `Ma classe sauf ${p.status.list.length}` : `${p.status.list.length} personne(s)`, 'data-a="status"')}
           ${sw('readReceipts', 'Confirmations de lecture', 'Si désactivées, vous ne verrez pas non plus celles des autres. Toujours actives dans le groupe de classe.', p.readReceipts)}
           <div class="section-title">Contacts bloqués</div>
           ${row('ban', 'Contacts bloqués', `${S.me.blocked.length}`, 'data-a="blocked"')}`;
@@ -314,7 +312,6 @@ function privacyPage() {
       body.onclick = async (e) => {
         const a = e.target.closest('[data-a]')?.dataset.a;
         if (!a) return;
-        if (a === 'status') return statusPrivacy();
         if (a === 'blocked') return blockedPage();
         const notes = { lastSeen: 'Si vous ne partagez pas votre « vu à », vous ne verrez pas celui des autres.' };
         const v = await choose({ lastSeen: 'Vu à et en ligne', avatar: 'Photo de profil', about: 'Infos', phone: 'Numéro de téléphone' }[a], [{ value: 'all', label: 'Ma classe' }, { value: 'nobody', label: 'Personne' }], S.me.privacy[a], { note: notes[a] || '' });
@@ -427,7 +424,7 @@ function notifPage() {
           ${sw('preview', 'Aperçu du message', 'Afficher le texte dans les notifications', n.preview)}
           <div class="section-title">Autres</div>
           ${sw('calls', 'Sonnerie des appels', '', n.calls)}
-          ${sw('status', 'Statuts', 'Être prévenu des nouveaux statuts', n.status)}
+          ${sw('orientation', 'Orientation', 'Nouvelles publications des établissements suivis (hors mode silencieux) et leurs réponses', n.orientation !== false)}
           ${sw('sound', 'Sons', 'Sons des messages entrants et sortants', n.sound)}
           ${row('speaker', 'Tester le son', '', 'data-test')}`;
         body.querySelectorAll('[data-sw]').forEach(i => (i.onchange = () => patch('/me/settings', { notifications: { [i.dataset.sw]: i.checked } }).then(setMe).catch(fail)));

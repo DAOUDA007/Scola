@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scola Établissements</title>
+  <meta name="description" content="Créez la chaîne d'orientation de votre établissement sur Scola et informez les élèves et étudiants.">
+  <meta name="theme-color" content="#C2410C">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/etablissement/etab.css">
+  <script>
+    try { const t = localStorage.getItem('scola.etab.theme'); if (t && t !== 'system') document.documentElement.dataset.theme = t; } catch {}
+  </script>
+</head>
+<body class="etab">
+  <div id="root"><div class="splash"><div class="splash-logo"></div><div class="splash-name">Scola Établissements</div></div></div>
+  <div id="layer"></div>
+  <div id="toasts"></div>
+  <script type="module" src="/etablissement/etab.js"></script>
+</body>
+</html>

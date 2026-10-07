@@ -29,6 +29,10 @@ function empty() {
     reports: [],      // signalements (traités par l'administration)
     admins: {},       // id -> administrateur du site (espace /admin)
     pushSubs: {},     // abonnements aux notifications push (par appareil connecté)
+    schools: {},      // id -> établissement (chaîne d'orientation), validé par l'administration
+    posts: {},        // id établissement -> [publications de sa chaîne]
+    follows: {},      // id élève -> { id établissement -> { at, muted, lastReadAt } }
+    inquiries: {},    // id -> échange privé entre un élève et un établissement
     meta: {},         // clé secrète des sessions, clés VAPID, etc.
   };
 }

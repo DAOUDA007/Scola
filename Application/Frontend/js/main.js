@@ -7,7 +7,7 @@ import { nav } from './nav.js';
 import { startAuth } from './auth.js';
 import * as chatlist from './chatlist.js';
 import * as conversation from './conversation.js';
-import * as status from './status.js';
+import * as orientation from './orientation.js';
 import * as calls from './calls.js';
 import * as settings from './settings.js';
 import * as classTab from './classtab.js';
@@ -21,6 +21,11 @@ if ('serviceWorker' in navigator) {
   // Clic sur une notification alors que Scola est déjà ouvert : on va au message.
   navigator.serviceWorker.addEventListener('message', (e) => {
     if (e.data?.type === 'open-chat' && S.me) nav.openChat(e.data.chatId, { around: e.data.msgId });
+    if (e.data?.type === 'open-url' && S.me) {
+      const p = new URL(e.data.url, location.origin).searchParams;
+      if (p.get('orientation')) { setTab('orientation'); nav.openChannel(p.get('orientation'), { post: p.get('post') || undefined }); }
+      else if (p.get('inquiry')) { setTab('orientation'); nav.openInquiry(p.get('inquiry')); }
+    }
   });
 }
 
@@ -61,7 +66,6 @@ function applyBootstrap(b) {
   S.members = new Map(b.members.map(u => [u.id, u]));
   S.members.set(b.me.id, b.me);
   S.chats = new Map(b.chats.map(c => [c.id, c]));
-  S.statuses = b.statuses;
   S.calls = b.calls;
   applyTheme();
 }
@@ -86,22 +90,27 @@ async function loadApp() {
   else if (u) toast('Ce code QR appartient à un élève d\'une autre classe.');
   // Ouverture depuis une notification : ?chat=…&msg=… mène directement au message.
   else if (q) nav.openChat(q, { around: params.get('msg') || undefined });
-  if (q || u || params.get('join')) history.replaceState(null, '', '/');
+  // Orientation : publication d'une chaîne (notification, lien partagé) ou échange avec un établissement.
+  const ori = params.get('orientation'), inq = params.get('inquiry');
+  if (ori) { setTab('orientation'); orientation.openChannel(ori, { post: params.get('post') || undefined }); }
+  else if (inq) { setTab('orientation'); orientation.openInquiry(inq); }
+  if (q || u || ori || inq || params.get('join')) history.replaceState(null, '', '/');
+  orientation.loadOrientation();
   syncPush().then(() => emit('push'));
 }
 
 nav.refresh = async () => {
   const b = await get('/bootstrap');
   applyBootstrap(b);
-  emit('chats'); emit('statuses'); emit('calls'); emit('class'); emit('members');
+  emit('chats'); emit('calls'); orientation.loadOrientation(); emit('class'); emit('members');
   if (S.current) emit('chat:reload', S.current);
 };
 
 /* ---------- Mise en page ---------- */
 const TABS = [
   ['chats', 'chat', 'Discussions'],
-  ['status', 'status', 'Statuts'],
   ['class', 'cap', 'Ma classe'],
+  ['orientation', 'megaphone', 'Orientation'],
   ['calls', 'phone', 'Appels'],
   ['settings', 'settings', 'Paramètres'],
 ];
@@ -141,7 +150,7 @@ export function setTab(tab) {
   $$('.rail-btn[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   const side = nav.els.side;
   side.innerHTML = '';
-  ({ chats: chatlist, status, calls, settings, class: classTab })[tab].render(side);
+  ({ chats: chatlist, orientation, calls, settings, class: classTab })[tab].render(side);
   if (tab === 'calls') { try { localStorage.setItem('scola.callsSeen', Date.now()); } catch {} }
   updateBadges();
 }
@@ -156,8 +165,8 @@ export function updateBadges() {
   };
   const n = totalUnread();
   set('chats', n ? `<span class="badge">${n > 99 ? '99+' : n}</span>` : '');
-  const unseen = S.statuses.some(s => s.userId !== S.me.id && !s.viewed && !(S.me.settings.mutedStatuses || []).includes(s.userId));
-  set('status', unseen ? '<span class="dotb"></span>' : '');
+  const ori = orientation.unreadTotal();
+  set('orientation', ori ? `<span class="badge">${ori > 99 ? '99+' : ori}</span>` : '');
   let seen = 0;
   try { seen = Number(localStorage.getItem('scola.callsSeen')) || 0; } catch {}
   const missed = S.tab === 'calls' ? 0 : S.calls.filter(c => c.missed && c.startedAt > seen).length;
@@ -165,7 +174,7 @@ export function updateBadges() {
   document.title = n ? `(${n}) Scola` : 'Scola';
 }
 on('chats', updateBadges);
-on('statuses', updateBadges);
+on('orientation', updateBadges);
 on('calls', updateBadges);
 on('me', () => { renderMe(); applyTheme(); });
 
@@ -277,19 +286,11 @@ function connect() {
     emit('members');
   });
   socket.on('class:update', (c) => { S.cls = c; emit('class'); emit('chats'); });
-  socket.on('status:new', (s) => {
-    S.statuses = S.statuses.filter(x => x.id !== s.id).concat(s);
-    emit('statuses');
-    if (s.userId !== S.me.id && S.me.settings.notifications.status && !(S.me.settings.mutedStatuses || []).includes(s.userId)) {
-      if (document.visibilityState === 'visible') toast(`${user(s.userId).name} a publié un statut`);
-    }
-  });
-  socket.on('status:update', (s) => { S.statuses = S.statuses.map(x => (x.id === s.id ? s : x)); emit('statuses'); });
-  socket.on('status:remove', ({ id }) => { S.statuses = S.statuses.filter(x => x.id !== id); emit('statuses'); });
   // L'administration a modifié le compte (ex. changement de classe) : on recharge.
   socket.on('reload', () => location.reload());
 
   calls.attach(socket);
+  orientation.attach(socket);
 
   const markRead = debounce(() => {
     if (S.current && document.visibilityState === 'visible') conversation.markRead();
@@ -359,6 +360,7 @@ addEventListener('keydown', (e) => {
 addEventListener('popstate', () => {
   if (nav.els.app?.classList.contains('drawer-open')) nav.closeDrawer();
   else if (S.current) nav.closeChat(true);
+  else if (nav.hasPanel?.()) nav.closePanel(true);
 });
 
 boot();

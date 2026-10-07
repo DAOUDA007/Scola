@@ -560,6 +560,36 @@ svg.i.lg { width: 28px; height: 28px; }
 .camera-box .cam-wait { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 10px; color: #cfd8d6; font-size: 14px; z-index: 1; }
 .camera-box .cam-wait svg.i { width: 40px; height: 40px; }
 
+/* Orientation : chaînes des établissements */
+.verified { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 5px; border-radius: 50%; background: var(--brand); color: #fff; vertical-align: -2px; flex: none; }
+.verified svg.i { width: 11px; height: 11px; stroke-width: 3; }
+.item .name .verified { margin-left: 6px; }
+.ori-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 26px 26px 12px; color: var(--text-2); font-size: 14px; }
+.ori-empty svg.i { width: 44px; height: 44px; color: var(--brand); stroke-width: 1.6; }
+.ori-empty b { color: var(--text); font-size: 15.5px; }
+.ori-follow { height: 32px; padding: 0 14px; font-size: 13.5px; margin-left: 8px; flex: none; }
+.ori-bar { flex: none; display: flex; justify-content: center; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: var(--panel-2); border-top: 1px solid var(--line); }
+.ori-bar .btn { min-width: 220px; }
+.ori-channel .messages-inner { max-width: 620px; }
+.post { align-self: flex-start; width: min(100%, 560px); background: var(--bubble-in); border-radius: 12px; box-shadow: var(--shadow-sm); padding: 6px; margin: 6px 0; position: relative; }
+.post.flash { animation: flash 1.6s; }
+.post-media { border-radius: 8px; overflow: hidden; background: #000; cursor: pointer; }
+.post-media img, .post-media video { width: 100%; max-height: 480px; object-fit: contain; display: block; }
+.post .doc { margin-bottom: 2px; }
+.post .text { padding: 8px 8px 0; }
+.post-meta { text-align: right; font-size: 11.5px; color: var(--text-3); padding: 2px 8px 4px; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.post-meta svg.i { width: 13px; height: 13px; }
+.post-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line); padding: 4px 4px 0; }
+.post-reacts { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border-radius: 15px; background: var(--panel-2); border: 1px solid var(--line); font-size: 15px; }
+.post-reacts small { font-size: 12.5px; color: var(--text-2); }
+.post-reacts.mine { border-color: var(--brand); background: var(--brand-soft); }
+.post-reacts.none { color: var(--text-3); }
+.post-reply { display: inline-flex; align-items: center; gap: 6px; color: var(--brand-strong); font-weight: 600; font-size: 14.5px; padding: 8px 10px; border-radius: 8px; }
+.post-reply:hover { background: var(--hover); }
+.ori-desc.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+:root[data-theme="dark"] .post-reply { color: var(--brand); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .post-reply { color: var(--brand); } }
+
 /* Stickers */
 .bubble.sticker { padding: 0; min-width: 0; }
 .sticker-img { width: 150px; height: 150px; object-fit: contain; display: block; cursor: pointer; }

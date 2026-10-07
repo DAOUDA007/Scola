@@ -16,6 +16,11 @@ const PUBLIC = process.env.FRONTEND_DIR || path.join(__dirname, '..', '..', 'Fro
 const ADMIN_DIR = process.env.ADMIN_DIR || path.join(__dirname, '..', '..', '..', 'Admin');
 const admin = require(path.join(ADMIN_DIR, 'Backend', 'admin.js'));
 const ADMIN_PUBLIC = path.join(ADMIN_DIR, 'Frontend');
+// Espace des établissements (dossier Etablissement/) : chaînes d'orientation.
+const ETAB_DIR = process.env.ETAB_DIR || path.join(__dirname, '..', '..', '..', 'Etablissement');
+const school = require(path.join(ETAB_DIR, 'Backend', 'school.js'));
+const ETAB_PUBLIC = path.join(ETAB_DIR, 'Frontend');
+const orientation = require('./orientation');
 
 const app = express();
 app.disable('x-powered-by');
@@ -48,16 +53,21 @@ app.get('/vendor/jsQR.js', (req, res) => res.sendFile(require.resolve('jsqr/dist
 
 // L'API d'administration doit être montée avant l'API élèves (qui exige un jeton élève).
 app.use('/api/admin', admin.router);
+app.use('/api/school', school.router);
+app.use('/api/orientation', orientation.router);
 app.use('/api', auth.router);
 app.use('/api', api.router);
 app.use('/api', (req, res) => res.status(404).json({ error: 'Route inconnue.' }));
 
 // Espace d'administration (/admin), servi depuis Admin/Frontend.
 app.use('/admin', express.static(ADMIN_PUBLIC, { index: 'index.html', maxAge: 0 }));
+// Espace Établissement (/etablissement), servi depuis Etablissement/Frontend.
+app.use('/etablissement', express.static(ETAB_PUBLIC, { index: 'index.html', maxAge: 0 }));
 app.use(express.static(PUBLIC, { index: 'index.html', maxAge: 0 }));
 app.use((req, res, next) => {
   if (req.method !== 'GET' || req.path.startsWith('/media/')) return next();
   if (req.path === '/admin' || req.path.startsWith('/admin/')) return res.sendFile(path.join(ADMIN_PUBLIC, 'index.html'));
+  if (req.path === '/etablissement' || req.path.startsWith('/etablissement/')) return res.sendFile(path.join(ETAB_PUBLIC, 'index.html'));
   res.sendFile(path.join(PUBLIC, 'index.html'));
 });
 
