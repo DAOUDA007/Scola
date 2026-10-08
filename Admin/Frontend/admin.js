@@ -187,6 +187,10 @@ async function dashboard(c) {
   const peak = s.signups.reduce((a, b) => (b.count > a.count ? b : a), s.signups[0]);
   const dayLbl = (t) => new Date(t).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
   c.innerHTML = `
+    ${s.storage && !s.storage.postgres && s.storage.render ? `<div class="notice danger" style="margin-bottom:18px"><b>${icon('info', 'xs')} Les données ne sont pas conservées.</b><br>
+      Le serveur fonctionne sur Render sans base PostgreSQL : à chaque mise en veille (environ 15 minutes sans visite) ou redéploiement, Render efface son disque.
+      Comptes, messages, établissements et paiements sont alors perdus, et <b>les élèves doivent se reconnecter</b>.
+      Ajoutez la variable <code>DATABASE_URL</code> (base PostgreSQL gratuite, par exemple Neon) dans <i>Render › Environment</i>.</div>` : ''}
     <div class="cards">
       <div class="stat"><small>${icon('users', 'xs')} Utilisateurs</small><b>${num(s.users)}</b><span class="sub">${num(s.online)} en ligne</span></div>
       <div class="stat"><small>${icon('cap', 'xs')} Classes</small><b>${num(s.classes)}</b><span class="sub">groupes actifs</span></div>

@@ -1,30 +1,81 @@
-// Service worker : installation de l'application, coquille hors-ligne, notifications.
-// v2 : purge les anciens caches, qui pouvaient contenir la page élève enregistrée sous /admin.
-const CACHE = 'scola-shell-v8';
-const SHELL = ['/', '/css/app.css', '/icons/icon.svg', '/icons/icon-192.png', '/manifest.webmanifest'];
+// Service worker : installation de l'application, fonctionnement hors connexion, notifications.
+// Comme WhatsApp, Scola s'ouvre sans réseau : l'application, les dernières discussions et les
+// médias déjà vus restent sur l'appareil ; tout est rafraîchi dès le retour du réseau.
+const VERSION = 'v9';
+const SHELL = 'scola-shell-' + VERSION;   // code de l'application (HTML, JS, CSS, icônes, stickers)
+const API = 'scola-api';                   // dernières réponses de l'API (lecture seule hors connexion)
+const MEDIA = 'scola-media';               // photos, vocaux, documents déjà ouverts
+const MEDIA_MAX = 400;
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil((async () => {
+    const c = await caches.open(SHELL);
+    let files = ['/', '/css/app.css', '/icons/icon.svg', '/icons/icon-192.png', '/manifest.webmanifest', '/socket.io/socket.io.js'];
+    try { files = [...new Set([...files, ...(await (await fetch('/offline-files.json', { cache: 'no-store' })).json())])]; } catch {}
+    // Un fichier introuvable ne doit pas empêcher l'installation.
+    await Promise.all(files.map(f => fetch(f, { cache: 'no-store' }).then(r => (r.ok ? c.put(f, r) : null)).catch(() => {})));
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys()
+    .then(keys => Promise.all(keys.filter(k => k.startsWith('scola-shell') && k !== SHELL).map(k => caches.delete(k))))
+    .then(() => self.clients.claim()));
 });
 
-// Réseau d'abord pour l'application, cache en secours ; les API et médias ne sont jamais mis en cache ici.
+const offlineCopy = (r) => {
+  const h = new Headers(r.headers);
+  h.set('X-Scola-Offline', '1');
+  return r.blob().then(b => new Response(b, { status: r.status, statusText: r.statusText, headers: h }));
+};
+async function trimMedia() {
+  const c = await caches.open(MEDIA);
+  const keys = await c.keys();
+  for (const k of keys.slice(0, Math.max(0, keys.length - MEDIA_MAX))) await c.delete(k);
+}
+
 self.addEventListener('fetch', (e) => {
-  const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== location.origin) return;
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/socket.io/') || url.pathname.startsWith('/media/')) return;
-  // L'espace d'administration est une application distincte : jamais intercepté ni
-  // remplacé par la page des élèves (même serveur arrêté).
+  const req = e.request;
+  const url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== location.origin) return;
+  // Administration et espace établissement : applications distinctes, jamais interceptées.
   if (/^\/(admin|etablissement)(\/|$)/i.test(url.pathname)) return;
-  e.respondWith(
-    fetch(e.request).then(r => {
-      if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
+  const p = url.pathname;
+
+  // API : réseau d'abord ; sans réseau, la dernière réponse gardée sur l'appareil.
+  if (p.startsWith('/api/')) {
+    if (/^\/api\/(auth|health|push|admin|school)/.test(p) || /^\/api\/(me\/export|export)/.test(p)) return;
+    e.respondWith(fetch(req).then(r => {
+      if (r.ok) { const copy = r.clone(); caches.open(API).then(c => c.put(req, copy)); }
       return r;
-    }).catch(() => caches.match(e.request).then(r => r || caches.match('/')))
-  );
+    }).catch(async () => {
+      const hit = await caches.match(req, { cacheName: API });
+      if (hit) return offlineCopy(hit);
+      return new Response(JSON.stringify({ error: 'Pas de connexion Internet.' }), { status: 503, headers: { 'Content-Type': 'application/json', 'X-Scola-Offline': '1' } });
+    }));
+    return;
+  }
+
+  // Médias : noms uniques et immuables → l'appareil d'abord. (Les lectures partielles de vidéo passent au réseau.)
+  if (p.startsWith('/media/')) {
+    if (req.headers.has('range')) return;
+    e.respondWith(caches.match(req, { cacheName: MEDIA }).then(hit => hit || fetch(req).then(r => {
+      if (r.status === 200) { const copy = r.clone(); caches.open(MEDIA).then(c => c.put(req, copy)).then(trimMedia); }
+      return r;
+    })));
+    return;
+  }
+
+  // Temps réel : uniquement le script client est gardé (les échanges en direct passent au réseau).
+  if (p.startsWith('/socket.io/') && p !== '/socket.io/socket.io.js') return;
+
+  // Application : réseau d'abord (mises à jour immédiates), sinon la copie de l'appareil.
+  const isPage = req.mode === 'navigate';
+  e.respondWith(fetch(req).then(r => {
+    if (r.ok) { const copy = r.clone(); caches.open(SHELL).then(c => c.put(isPage ? '/' : req, copy)); }
+    return r;
+  }).catch(async () => (await caches.match(isPage ? '/' : req, { ignoreSearch: isPage })) || (await caches.match('/')) || Response.error()));
 });
 
 // Notification push envoyée par le serveur (nouveau message, annonce, appel manqué).

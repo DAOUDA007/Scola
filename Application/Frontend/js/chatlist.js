@@ -2,7 +2,7 @@
 import { $, h, esc, icon, avatar, listTime, fold, debounce, formatText, hhmm, morph } from './util.js';
 import { get, post, patch, del } from './api.js';
 import { S, on, emit, user, chatTitle, chatEntity, isMuted, preview, sortedChats, draft, displayName } from './state.js';
-import { toast, fail, ctxMenu, confirmBox, choose, pickMembers, pushPage, promptBox, modal } from './ui.js';
+import { toast, fail, ctxMenu, confirmBox, choose, pickMembers, pushPage, promptBox, modal, touchActive } from './ui.js';
 import { nav } from './nav.js';
 import { pushSupported, enablePush } from './push.js';
 
@@ -195,6 +195,7 @@ export function bindList(list) {
     const it = e.target.closest('.item[data-chat]');
     if (!it || it.dataset.around) return;
     e.preventDefault();
+    if (touchActive()) return; // déjà ouvert par l'appui long
     chatMenu(S.chats.get(it.dataset.chat), { x: e.clientX, y: e.clientY });
   });
   let press;

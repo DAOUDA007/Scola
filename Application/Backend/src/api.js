@@ -584,6 +584,11 @@ router.get('/chats/:id/messages', (req, res) => {
 router.post('/chats/:id/messages', (req, res) => {
   const chat = getChat(req);
   const clientId = /^tmp_[\w-]{4,40}$/.test(req.body.clientId || '') ? req.body.clientId : undefined;
+  // Renvoi automatique d'un message envoyé hors connexion : jamais de doublon.
+  if (clientId) {
+    const dup = (data.messages[chat.id] || []).slice(-300).find(x => x.clientId === clientId && x.senderId === req.user.id);
+    if (dup) return res.json(C.msgView(dup, req.user.id));
+  }
   const m = sendTo(req.user, chat, req.body, clientId ? { clientId } : {});
   res.json(C.msgView(m, req.user.id));
 });

@@ -2,10 +2,11 @@
 import { $, $$, h, esc, icon, avatar, lastSeenText, debounce, copyText, hhmm, download, dayLabel, fullDate, fold, pickFiles } from './util.js';
 import { get, post, patch, del, upload, downloadAuth } from './api.js';
 import { S, on, emit, user, displayName, chatTitle, chatEntity, isMuted, blocked, preview, upsertMsg, draft } from './state.js';
-import { toast, fail, ctxMenu, modal, confirmBox, choose, pickMembers, placeAt, sound, closeMenus } from './ui.js';
+import { toast, fail, ctxMenu, modal, confirmBox, choose, pickMembers, placeAt, sound, closeMenus, ghostOf, touchActive } from './ui.js';
 import { nav } from './nav.js';
 import { live, typingText, chatMenu, muteChat, clearChat, deleteChat, toggleBlock, report } from './chatlist.js';
 import { msgHTML, daySep, sameGroup, quoteHTML, eventIcs } from './msgview.js';
+import * as outbox from './outbox.js';
 import { emojiPanel, QUICK, pushRecent } from './emoji.js';
 import { expressionPanel, stickerMenu } from './stickers.js';
 import { openViewer, composeMedia, openCamera, compressImage, imageInfo, videoInfo, kindOf, toggleVoice, seekVoice, cycleSpeed, syncVoice, startRecorder } from './media.js';
@@ -87,7 +88,7 @@ async function loadMessages(around) {
     try {
       const r = await get(`/chats/${id}/messages?limit=60${around ? '&around=' + encodeURIComponent(around) : ''}`);
       if (cur?.chatId !== id) return;
-      S.msgs.set(id, r.messages);
+      S.msgs.set(id, withPending(id, r.messages));
       S.hasMore.set(id, r.hasMore);
     } catch (e) { cur.inner.innerHTML = `<div class="sys">${esc(e.message)}</div>`; return; }
   }
@@ -458,6 +459,8 @@ function bindMessages() {
   L.addEventListener('contextmenu', (e) => {
     const el = e.target.closest('.msg');
     if (!el || e.target.closest('a')) return;
+    // Sur écran tactile, l'appui long ouvre déjà le menu (ci-dessous) : pas de second menu.
+    if (touchActive()) { e.preventDefault(); return; }
     const m = findMsg(el.dataset.id);
     if (!m || m.status === 'pending') return;
     e.preventDefault();
@@ -477,8 +480,18 @@ function bindMessages() {
       if (!m || m.status === 'pending') return;
       navigator.vibrate?.(25);
       if (cur.selecting) return toggleSelect(m.id);
-      if (!m.deleted) reactBar(m, el.querySelector('.bubble'));
-      msgMenu(m, { x: t.clientX, y: t.clientY + 60 }, true);
+      // Comme WhatsApp : réactions au-dessus du message, menu en dessous, sans se chevaucher.
+      const bubble = el.querySelector('.bubble');
+      if (!m.deleted) reactBar(m, bubble);
+      const menu = msgMenu(m, { x: t.clientX, y: (bubble || el).getBoundingClientRect().bottom + 8 }, true);
+      const bar = document.querySelector('.react-bar');
+      if (bar && menu) {
+        const rb = bar.getBoundingClientRect(), rm = menu.getBoundingClientRect();
+        if (rb.bottom > rm.top - 4 && rb.top < rm.bottom + 4) {
+          const top = rm.top - rb.height - 8;
+          bar.style.top = (top >= 8 ? top : rm.bottom + 8) + 'px';
+        }
+      }
     }, 500);
   }, { passive: true });
   L.addEventListener('touchmove', (e) => {
@@ -517,7 +530,7 @@ function msgMenu(m, anchor, touch = false) {
   const editable = mine && ['text', 'image', 'video', 'document'].includes(m.type) && !m.viewOnce && Date.now() - m.createdAt < 15 * 60e3;
   const media = m.media && !m.viewOnce;
   const pinAllowed = chat.type !== 'group' || S.cls.settings.membersPin !== false;
-  ctxMenu(anchor, [
+  return ctxMenu(anchor, [
     !touch && { icon: 'smile', label: 'Réagir', onClick: () => reactBar(m, msgEl(m.id)?.querySelector('.bubble')) },
     { icon: 'reply', label: 'Répondre', onClick: () => setReply(m) },
     chat.type === 'group' && !mine && { icon: 'user', label: `Écrire à ${user(m.senderId).name.split(' ')[0]} en privé`, onClick: () => post('/chats/dm/' + m.senderId).then(c => { S.chats.set(c.id, c); openChat(c.id); }).catch(fail) },
@@ -541,8 +554,9 @@ function reactBar(m, anchorEl) {
   document.querySelectorAll('.react-bar').forEach(x => x.remove());
   const mine = m.reactions?.[S.me.id];
   const bar = h(`<div class="react-bar">${QUICK.map(e => `<button class="${mine === e ? 'on' : ''}">${e}</button>`).join('')}<button class="plus" data-plus>${icon('plus', 'sm')}</button></div>`);
+  const openedAt = performance.now();
   const close = () => { bar.remove(); removeEventListener('mousedown', outside, true); };
-  const outside = (e) => { if (!bar.contains(e.target)) close(); };
+  const outside = (e) => { if (!bar.contains(e.target) && !ghostOf(openedAt)) close(); };
   setTimeout(() => addEventListener('mousedown', outside, true), 0);
   bar.onclick = (e) => {
     const b = e.target.closest('button');
@@ -928,6 +942,14 @@ function handleSuggestKey(e) {
 /* ---------------- Envoi ---------------- */
 function tempId() { return 'tmp_' + Math.random().toString(36).slice(2, 12); }
 
+// Messages écrits hors connexion pour cette discussion, ajoutés après ceux du serveur.
+function withPending(chatId, list) {
+  const sent = new Set(list.map(x => x.clientId).filter(Boolean));
+  return list.concat(outbox.pendingFor(chatId).filter(t => !sent.has(t.id)));
+}
+on('outbox:sent', ({ temp, real }) => settle(temp, real));
+on('outbox:failed', ({ temp, error }) => { dropTemp(temp); fail(error); });
+
 function addTemp(fields) {
   const m = {
     id: tempId(), chatId: cur.chatId, senderId: S.me.id, createdAt: Date.now() + S.clockSkew, status: 'pending',
@@ -994,11 +1016,14 @@ async function sendText() {
   syncSendBtn();
   typingDone();
   $('[data-suggest]', cur.root).innerHTML = '';
+  const body = { type: 'text', text, mentions, replyTo, clientId: temp.id };
   try {
-    const m = await post(`/chats/${temp.chatId}/messages`, { type: 'text', text, mentions, replyTo, clientId: temp.id });
+    const m = await post(`/chats/${temp.chatId}/messages`, body);
     settle(temp, m);
     sound.sent();
   } catch (e) {
+    // Hors connexion : le message reste affiché avec l'horloge et partira au retour du réseau.
+    if (e.offline) return outbox.enqueue(temp, body);
     dropTemp(temp);
     fail(e);
     if (cur?.chatId === temp.chatId && !input().value) { input().value = text; autosize(input()); syncSendBtn(); }
@@ -1010,12 +1035,16 @@ async function sendPayload(body, tempFields) {
   const temp = addTemp(tempFields || body);
   cur.replyTo = null;
   renderCtx();
+  const full = { ...body, replyTo, clientId: temp.id };
   try {
-    const m = await post(`/chats/${temp.chatId}/messages`, { ...body, replyTo, clientId: temp.id });
+    const m = await post(`/chats/${temp.chatId}/messages`, full);
     settle(temp, m);
     sound.sent();
     return m;
-  } catch (e) { dropTemp(temp); fail(e); return null; }
+  } catch (e) {
+    if (e.offline) { outbox.enqueue(temp, full); return null; }
+    dropTemp(temp); fail(e); return null;
+  }
 }
 
 function sendSticker(url) {

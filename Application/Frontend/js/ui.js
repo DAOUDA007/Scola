@@ -93,20 +93,38 @@ export function choose(title, options, current, { okLabel = 'OK', note = '' } = 
   });
 }
 
+/* ---------- Appui long sur écran tactile ----------
+   Après un appui long, le navigateur envoie encore, au relâchement du doigt, un « clic droit »
+   (contextmenu) et parfois un clic fantôme. Ils tombent sur le fond du menu qui vient de s'ouvrir
+   et le refermaient aussitôt. On ignore donc les événements qui viennent d'un contact commencé
+   AVANT l'ouverture du menu ; un nouveau toucher en dehors le referme normalement. */
+let touchStartAt = 0, touchEndAt = 0, touching = false;
+addEventListener('touchstart', () => { touching = true; touchStartAt = performance.now(); }, { capture: true, passive: true });
+addEventListener('touchend', () => { touching = false; touchEndAt = performance.now(); }, { capture: true, passive: true });
+addEventListener('touchcancel', () => { touching = false; touchEndAt = performance.now(); }, { capture: true, passive: true });
+// Vrai si l'événement courant est la suite d'un appui commencé avant `openedAt`.
+export function ghostOf(openedAt) {
+  return touchStartAt < openedAt && (touching || performance.now() - touchEndAt < 700);
+}
+// Vrai pendant un toucher en cours (ou juste terminé) : le menu a déjà été ouvert par l'appui long.
+export const touchActive = () => touching || performance.now() - touchEndAt < 700;
+
 /* ---------- Menus contextuels ---------- */
 export function ctxMenu(anchor, items, { align = 'right' } = {}) {
   closeMenus();
+  const openedAt = performance.now();
   const menu = h('<div class="ctx" role="menu"></div>');
   for (const it of items) {
     if (!it) continue;
     if (it === '-') { menu.append(h('<hr>')); continue; }
     const b = h(`<button class="${it.danger ? 'danger' : ''}" role="menuitem">${it.icon ? icon(it.icon) : ''}<span>${esc(it.label)}</span></button>`);
-    b.onclick = (e) => { e.stopPropagation(); closeMenus(); it.onClick?.(); };
+    b.onclick = (e) => { e.stopPropagation(); if (ghostOf(openedAt)) return; closeMenus(); it.onClick?.(); };
     menu.append(b);
   }
   const bd = h('<div class="backdrop clear"></div>');
-  bd.addEventListener('mousedown', (e) => { if (e.target === bd) closeMenus(); });
-  bd.addEventListener('contextmenu', (e) => { e.preventDefault(); closeMenus(); });
+  bd.addEventListener('mousedown', (e) => { if (e.target === bd && !ghostOf(openedAt)) closeMenus(); });
+  bd.addEventListener('click', (e) => { if (e.target === bd && !ghostOf(openedAt)) closeMenus(); });
+  bd.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!ghostOf(openedAt)) closeMenus(); });
   bd.append(menu);
   $('#layer').append(bd);
   placeAt(menu, anchor, align);

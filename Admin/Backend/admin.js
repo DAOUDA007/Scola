@@ -13,7 +13,7 @@ const C = backendRequire('./src/core');
 const catalog = backendRequire('./src/catalog');
 const { httpError, bcrypt, SECRET, jwt } = backendRequire('./src/auth');
 const { classView, upload } = backendRequire('./src/api');
-const { storeMedia } = backendRequire('./src/db');
+const { storeMedia, usesPostgres } = backendRequire('./src/db');
 const push = backendRequire('./src/push');
 const O = backendRequire('./src/orientation');
 const mail = backendRequire('./src/mail');
@@ -183,6 +183,8 @@ router.get('/stats', (req, res) => {
     schoolRequests: Object.values(data.schools).filter(x => x.status === 'pending').length,
     posts: Object.values(data.posts).reduce((n, l) => n + l.length, 0),
     reportsPending: data.reports.filter(r => !r.resolved).length,
+    // Données conservées entre deux redémarrages ? (Render efface son disque à chaque mise en veille.)
+    storage: { postgres: usesPostgres(), render: !!process.env.RENDER },
     planRequests: Object.values(data.planRequests || {}).filter(r => r.status === 'pending').length,
     campaignQueue: Object.values(data.campaigns || {}).filter(c => ['awaiting_payment', 'in_review'].includes(c.status)).length,
     admins: Object.keys(data.admins).length,

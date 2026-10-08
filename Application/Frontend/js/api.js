@@ -19,11 +19,19 @@ export async function api(method, url, body) {
   try {
     r = await fetch('/api' + url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
   } catch {
-    throw new Error('Connexion impossible. Vérifiez votre réseau.');
+    const e = new Error('Pas de connexion Internet. Réessayez quand le réseau revient.');
+    e.offline = true;
+    throw e;
   }
   const data = await r.json().catch(() => ({}));
+  // Réponse gardée sur l'appareil (service worker) : l'application reste utilisable hors connexion.
+  if (r.headers.get('X-Scola-Offline') && data && typeof data === 'object' && !Array.isArray(data)) data.__offline = true;
   if (r.status === 401 && t) onUnauthorized();
-  if (!r.ok) throw new Error(data.error || 'Une erreur est survenue.');
+  if (!r.ok) {
+    const e = new Error(data.error || 'Une erreur est survenue.');
+    if (r.headers.get('X-Scola-Offline')) e.offline = true;
+    throw e;
+  }
   return data;
 }
 

@@ -3,7 +3,7 @@
 import { $, h, esc, icon, avatar, listTime, fullDate, formatText, fold, debounce, copyText, fileSize, extOf, docKind, hhmm, dayLabel, pickFiles } from './util.js';
 import { get, post, patch, del, upload } from './api.js';
 import { S, emit, on, chatTitle, chatEntity } from './state.js';
-import { toast, fail, ctxMenu, modal, confirmBox, choose, pushPage, placeAt, sound, banner } from './ui.js';
+import { toast, fail, ctxMenu, modal, confirmBox, choose, pushPage, placeAt, sound, banner, touchActive } from './ui.js';
 import { nav } from './nav.js';
 import { live } from './chatlist.js';
 import { openViewer } from './media.js';
@@ -95,6 +95,7 @@ export function render(side) {
     const it = e.target.closest('[data-inquiry]');
     if (!it) return;
     e.preventDefault();
+    if (touchActive()) return; // déjà ouvert par l'appui long
     inqMenu(it.dataset.inquiry, { x: e.clientX, y: e.clientY });
   });
   let press;

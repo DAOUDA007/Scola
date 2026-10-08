@@ -6,6 +6,7 @@ import { toast, banner, sound, closeMenus, pushPage } from './ui.js';
 import { nav } from './nav.js';
 import { startAuth } from './auth.js';
 import * as chatlist from './chatlist.js';
+import * as outbox from './outbox.js';
 import * as conversation from './conversation.js';
 import * as orientation from './orientation.js';
 import * as calls from './calls.js';
@@ -82,7 +83,11 @@ async function loadApp() {
   const b = await get('/bootstrap');
   applyBootstrap(b);
   renderLayout();
+  // Données gardées sur l'appareil (hors connexion) : elles seront rafraîchies à la reconnexion.
+  if (b.__offline) wasDisconnected = true;
+  netBar();
   connect();
+  outbox.flush();
   const params = new URLSearchParams(location.search);
   const q = params.get('chat');
   const u = params.get('user');
@@ -193,14 +198,35 @@ nav.openProfile = (uid) => info.openUser(uid);
 
 /* ---------- Temps réel ---------- */
 let wasDisconnected = false;
+// Bandeau « hors connexion » (comme le « Connexion… » de WhatsApp), sans clignoter.
+let netTimer = null;
+function netBar(state) {
+  let bar = document.getElementById('net-bar');
+  if (!bar) { bar = document.createElement('div'); bar.id = 'net-bar'; bar.setAttribute('role', 'status'); document.body.append(bar); }
+  clearTimeout(netTimer);
+  const online = S.socket?.connected;
+  if (online || state === 'ok') { bar.classList.remove('on'); return; }
+  netTimer = setTimeout(() => {
+    if (S.socket?.connected) return;
+    bar.textContent = navigator.onLine ? 'Connexion à Scola…' : 'Hors connexion · vos messages partiront dès le retour du réseau';
+    bar.classList.add('on');
+  }, 2500);
+}
+addEventListener('online', () => { netBar(); outbox.flush(); });
+addEventListener('offline', () => netBar());
+
 function connect() {
+  // Script Socket.IO indisponible (hors connexion au tout premier lancement) : on réessaie plus tard.
+  if (typeof io === 'undefined') { wasDisconnected = true; setTimeout(connect, 5000); return; }
   const socket = io({ auth: { token: token.get() }, transports: ['websocket', 'polling'] });
   S.socket = socket;
   socket.on('connect_error', (e) => { if (e.message === 'auth') logout(true); });
   socket.on('connect', async () => {
+    netBar('ok');
+    outbox.flush();
     if (wasDisconnected) { wasDisconnected = false; try { await nav.refresh(); } catch {} }
   });
-  socket.on('disconnect', () => { wasDisconnected = true; });
+  socket.on('disconnect', () => { wasDisconnected = true; netBar(); });
   socket.on('session:revoked', () => logout(true));
 
   socket.on('msg:new', async (m) => {
@@ -342,6 +368,9 @@ async function logout(silent = false) {
   await disablePush();
   if (!silent) { try { await post('/me/logout'); } catch {} }
   token.clear();
+  outbox.clear();
+  // Données de ce compte gardées sur l'appareil : effacées à la déconnexion.
+  try { await Promise.all(['scola-api', 'scola-media'].map(k => caches.delete(k))); } catch {}
   try { S.socket?.disconnect(); } catch {}
   location.href = '/';
 }

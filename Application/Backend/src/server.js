@@ -22,6 +22,7 @@ const school = require(path.join(ETAB_DIR, 'Backend', 'school.js'));
 const ETAB_PUBLIC = path.join(ETAB_DIR, 'Frontend');
 const orientation = require('./orientation');
 
+const STARTED = Date.now();
 const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
@@ -50,6 +51,22 @@ app.get('/media/:name', async (req, res, next) => {
   media(req, res, next);
 });
 app.get('/vendor/jsQR.js', (req, res) => res.sendFile(require.resolve('jsqr/dist/jsQR.js')));
+
+// Fichiers de l'application à garder sur l'appareil pour fonctionner hors connexion (service worker).
+app.get('/offline-files.json', (req, res) => {
+  const list = ['/', '/manifest.webmanifest', '/vendor/jsQR.js'];
+  const walk = (dir, base) => {
+    for (const f of fs.readdirSync(path.join(PUBLIC, dir), { withFileTypes: true })) {
+      if (f.isDirectory()) walk(path.join(dir, f.name), base + f.name + '/');
+      else if (/\.(js|css|svg|png|webmanifest|woff2?)$/i.test(f.name)) list.push(base + f.name);
+    }
+  };
+  for (const d of ['js', 'css', 'icons', 'stickers']) { try { walk(d, '/' + d + '/'); } catch {} }
+  res.setHeader('Cache-Control', 'no-cache');
+  res.json(list);
+});
+// Diagnostic : les données sont-elles conservées entre deux redémarrages ?
+app.get('/api/health', (req, res) => res.json({ ok: true, storage: usesPostgres() ? 'postgresql' : 'fichier', persistent: usesPostgres() || !process.env.RENDER, startedAt: STARTED }));
 
 // L'API d'administration doit être montée avant l'API élèves (qui exige un jeton élève).
 app.use('/api/admin', admin.router);
