@@ -126,7 +126,10 @@ function fillMissing(target, def) {
     for (const r of Object.keys(RIGHTS)) if (!(r in p.rights)) { p.rights[r] = false; changed = true; }
     for (const k of Object.keys(QUOTAS)) if (!(k in p.quotas)) { p.quotas[k] = k === 'postsPerMonth' ? null : 0; changed = true; }
   }
-  for (const k of ['subscriptions', 'payments', 'planRequests', 'campaigns', 'stats']) if (!data[k] || typeof data[k] !== 'object') { data[k] = {}; changed = true; }
+  for (const k of ['subscriptions', 'payments', 'planRequests', 'campaigns', 'stats', 'paymentProofs']) if (!data[k] || typeof data[k] !== 'object') { data[k] = {}; changed = true; }
+  // Lien de paiement personnalisé (Wave, Orange Money, CinetPay…) : vide par défaut.
+  for (const p of Object.values(data.offers.plans)) if (typeof p.paymentLink !== 'string') { p.paymentLink = ''; changed = true; }
+  for (const t of Object.values(data.offers.campaignTypes)) if (typeof t.paymentLink !== 'string') { t.paymentLink = ''; changed = true; }
   // Les établissements existants n'ont pas d'abonnement : ils passent au statut « sans abonnement ».
   // Rien n'est supprimé : galerie, formations et inscriptions sont simplement vides au départ.
   for (const s of Object.values(data.schools)) {
@@ -219,7 +222,7 @@ function showsVerified(s) { return !!s.verified && can(s, 'verifiedBadge'); }
 // Résumé public d'une offre (espace établissement, administration).
 function planSummary(code) {
   const p = planDef(code);
-  return { code: p.code, name: p.name, price: p.price, order: p.order, purchasable: !!p.purchasable, target: p.target || '', rights: { ...p.rights }, quotas: { ...p.quotas } };
+  return { code: p.code, name: p.name, price: p.price, order: p.order, purchasable: !!p.purchasable, target: p.target || '', paymentLink: p.paymentLink || '', rights: { ...p.rights }, quotas: { ...p.quotas } };
 }
 
 function offerState(s) {
@@ -244,6 +247,13 @@ function int(v, min, max, label) {
   return n;
 }
 
+// Lien de paiement : adresse web complète (https://…) ou vide.
+function link(v, label) {
+  const u = clip(v, 500);
+  if (u && !/^https?:\/\/[^\s]+$/i.test(u)) throw bad(`${label} : le lien de paiement doit commencer par https://`);
+  return u;
+}
+
 // Applique les modifications envoyées par l'administration, champ par champ, après validation.
 // Les valeurs absentes de la requête sont conservées.
 function updateOffers(b) {
@@ -264,6 +274,7 @@ function updateOffers(b) {
       const p = o.plans[code];
       if (v.name !== undefined) { p.name = clip(v.name, 60); if (p.name.length < 2) throw bad('Nom de formule trop court.'); }
       if (v.target !== undefined) p.target = clip(v.target, 200);
+      if (v.paymentLink !== undefined) p.paymentLink = link(v.paymentLink, p.name);
       if (v.price !== undefined) p.price = int(v.price, 0, 1e9, `Prix de ${p.name}`);
       if (v.order !== undefined) p.order = int(v.order, 0, 100, 'Ordre');
       if (v.purchasable !== undefined && code !== 'gratuit') p.purchasable = !!v.purchasable;
@@ -284,6 +295,7 @@ function updateOffers(b) {
       const t = o.campaignTypes[code];
       if (v.name !== undefined) { t.name = clip(v.name, 60); if (t.name.length < 2) throw bad('Nom de type trop court.'); }
       if (v.usage !== undefined) t.usage = clip(v.usage, 200);
+      if (v.paymentLink !== undefined) t.paymentLink = link(v.paymentLink, t.name);
       if (v.price !== undefined) t.price = int(v.price, 0, 1e9, `Prix (${t.name})`);
       if (v.minDays !== undefined) t.minDays = int(v.minDays, 1, 365, 'Durée minimale');
       if (v.maxDays !== undefined) t.maxDays = int(v.maxDays, 1, 365, 'Durée maximale');

@@ -66,6 +66,7 @@ router.get('/billing/subscriptions', (req, res) => {
     plans: Object.values(o.plans).sort((a, b) => a.order - b.order).map(p => ({ code: p.code, name: p.name, price: p.price, purchasable: p.purchasable })),
     founder: { taken: OF.founderSeatsTaken(), seats: o.founder.seats, guaranteedYears: o.founder.guaranteedYears },
     pendingRequests: Object.values(data.planRequests).filter(r => r.status === 'pending').length,
+    pendingProofs: Object.values(data.paymentProofs || {}).filter(p => p.status === 'pending').length,
     methods: B.METHODS,
   });
 });
@@ -74,9 +75,10 @@ router.get('/billing/schools/:id', (req, res) => {
   const s = getSchool(req.params.id);
   B.checkFounderContinuity(s);
   const subs = Object.values(data.subscriptions).filter(x => x.schoolId === s.id).sort((a, b) => b.createdAt - a.createdAt).map(B.subView);
-  const payments = Object.values(data.payments).filter(p => p.schoolId === s.id).sort((a, b) => b.at - a.at).map(p => ({ id: p.id, receiptNo: p.receiptNo, amount: p.amount, method: p.method, methodLabel: B.METHODS[p.method] || p.method, reference: p.reference, at: p.at, label: p.label, cancelled: !!p.cancelled }));
+  const payments = Object.values(data.payments).filter(p => p.schoolId === s.id).sort((a, b) => b.at - a.at).map(p => ({ id: p.id, receiptNo: p.receiptNo, amount: p.amount, method: p.method, methodLabel: B.METHODS[p.method] || p.method, reference: p.reference, at: p.at, label: p.label, cancelled: !!p.cancelled, sentAt: p.sentAt || null }));
   const requests = Object.values(data.planRequests).filter(r => r.schoolId === s.id).sort((a, b) => b.at - a.at).map(requestView);
-  res.json({ ...row(s), offer: OF.offerState(s), banner: B.banner(s), subscriptions: subs, payments, requests, founderEligibility: B.founderEligibility(s), methods: B.METHODS });
+  const proofs = Object.values(data.paymentProofs || {}).filter(p => p.schoolId === s.id).sort((a, b) => b.at - a.at).map(B.proofView);
+  res.json({ ...row(s), offer: OF.offerState(s), banner: B.banner(s), subscriptions: subs, payments, requests, proofs, founderEligibility: B.founderEligibility(s), methods: B.METHODS });
 });
 
 router.get('/billing/schools/:id/quote', (req, res) => {
@@ -85,6 +87,7 @@ router.get('/billing/schools/:id/quote', (req, res) => {
 
 router.post('/billing/schools/:id/subscriptions', (req, res) => {
   const r = B.recordSubscription(getSchool(req.params.id), req.body, req.admin);
+  if (req.body.proofId) B.acceptProof(req.body.proofId, r.payment.id, req.admin);
   res.json({ subscription: B.subView(r.subscription), payment: B.paymentView(r.payment) });
 });
 
@@ -99,6 +102,24 @@ router.get('/billing/payments/:id', (req, res) => {
   if (!p) throw httpError(404, 'Paiement introuvable.');
   res.json(B.paymentView(p));
 });
+
+// Envoi du reçu Scola à l'établissement (espace établissement + e-mail si configuré).
+router.post('/billing/payments/:id/send', async (req, res) => {
+  const p = data.payments[req.params.id];
+  if (!p) throw httpError(404, 'Paiement introuvable.');
+  const r = await B.sendReceipt(p, req.admin);
+  res.json({ ...B.paymentView(p), emailed: !!r?.sent });
+});
+
+/* ---------------- Reçus envoyés par les établissements ---------------- */
+
+router.get('/billing/proofs', (req, res) => {
+  let list = Object.values(data.paymentProofs || {});
+  if (req.query.status) list = list.filter(p => p.status === req.query.status);
+  if (req.query.school) list = list.filter(p => p.schoolId === req.query.school);
+  res.json(list.sort((a, b) => b.at - a.at).slice(0, 300).map(B.proofView));
+});
+router.post('/billing/proofs/:id/reject', (req, res) => res.json(B.proofView(B.rejectProof(B.getProof(req.params.id), req.body.reason, req.admin))));
 
 /* ---------------- Demandes de formule ---------------- */
 
@@ -144,12 +165,14 @@ router.get('/billing/campaigns/:id', (req, res) => {
   res.json({
     ...CP.view(c, { admin: true }), estimate: CP.estimate(c.targeting),
     preview: s ? { ...CP.adView(c, { placement: c.placements.includes('banner') ? 'banner' : 'sponsored', big: OF.can(s, 'bigBanner') }), sponsored: true } : null,
+    proofs: Object.values(data.paymentProofs || {}).filter(p => p.campaignId === c.id).sort((a, b) => b.at - a.at).map(B.proofView),
     plan: s ? OF.currentPlan(s).plan.name : '—', payment: c.paymentId ? data.payments[c.paymentId] || null : null, methods: B.METHODS,
   });
 });
 
 router.post('/billing/campaigns/:id/payment', (req, res) => {
   const p = B.recordCampaignPayment(getCampaign(req.params.id), req.body, req.admin);
+  if (req.body.proofId) B.acceptProof(req.body.proofId, p.id, req.admin);
   res.json({ payment: B.paymentView(p) });
 });
 router.post('/billing/campaigns/:id/approve', (req, res) => res.json(CP.view(CP.approve(getCampaign(req.params.id), req.admin), { admin: true })));

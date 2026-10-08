@@ -4,7 +4,7 @@ import { $, $$, h, esc, icon, avatar, debounce, pickFiles } from '/js/util.js';
 import { toast, fail, modal, confirmBox } from '/js/ui.js';
 import { compressImage } from '/js/media.js';
 import { mountLine, barList, fmt } from '/js/charts.js';
-import { locked, fcfa, dateFr } from '/etablissement/offre.js';
+import { locked, fcfa, dateFr, proofForm } from '/etablissement/offre.js';
 
 let X; // { get, post, patch, del, uploadFile, me }
 export function setup(ctx) { X = ctx; }
@@ -18,6 +18,11 @@ export async function campagnesPage(c) {
   let r;
   try { r = await X.get('/campaigns'); } catch (e) { c.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   const cr = r.credits;
+  // Lien de paiement du type de campagne et dernier reçu envoyé pour chaque campagne.
+  for (const cm of r.campaigns) {
+    cm.paymentLink = r.types.find(t => t.code === cm.type)?.paymentLink || '';
+    cm.proof = r.proofs.filter(p => p.campaignId === cm.id).sort((a, b) => b.at - a.at)[0] || null;
+  }
   c.innerHTML = `<div class="toolbar-row"><span class="grow muted" style="font-size:14px">Faites connaître votre établissement aux élèves qui vous intéressent, dans l'onglet Orientation de Scola.</span>
       <button class="btn" data-new>${icon('plus', 'sm')} Nouvelle campagne</button></div>
     ${cr.campaign.total || cr.national.total ? `<div class="et-banner info">${icon('star', 'sm')}<span class="grow">Votre formule inclut ${cr.campaign.total ? `<b>${cr.campaign.left} campagne${cr.campaign.left > 1 ? 's' : ''}</b> sur ${cr.campaign.total}` : ''}${cr.campaign.total && cr.national.total ? ' et ' : ''}${cr.national.total ? `<b>${cr.national.left} campagne${cr.national.left > 1 ? 's' : ''} nationale${cr.national.left > 1 ? 's' : ''}</b> sur ${cr.national.total}` : ''} pour l'année d'abonnement en cours${cr.until ? ` (jusqu'au ${esc(dateFr(cr.until))})` : ''}.</span></div>` : ''}
@@ -38,6 +43,7 @@ export async function campagnesPage(c) {
       if (b.dataset.act === 'submit') return submitFlow(c, r, cm);
       if (b.dataset.act === 'stats') return statsModal(cm, r);
       if (b.dataset.act === 'pay') return payInfo(r, cm);
+      if (b.dataset.act === 'proof') return proofForm({ kind: 'campaign', campaignId: cm.id, label: `Campagne « ${cm.title} »`, amount: cm.price, methods: r.methods }, () => campagnesPage(c));
       if (b.dataset.act === 'delete' && await confirmBox(`Supprimer « ${cm.title} » ?`, '', { ok: 'Supprimer', danger: true })) { await X.del('/campaigns/' + cm.id); toast('Campagne supprimée'); campagnesPage(c); }
     } catch (er) { fail(er); }
   };
@@ -52,7 +58,7 @@ function card(cm) {
     <div style="font-size:13.5px;margin-top:6px">${icon('users', 'xs')} Cible : ${esc(cm.describe)}</div>
     ${cm.status === 'rejected' && cm.rejectReason ? `<div class="notice" style="margin-top:10px;border-color:#f3b4ae">${icon('info', 'xs')} <b>Motif du refus :</b> ${esc(cm.rejectReason)}<br><span class="hint">Modifiez la campagne puis soumettez-la à nouveau.</span></div>` : ''}
     ${cm.status === 'suspended' && cm.suspendReason ? `<div class="notice" style="margin-top:10px">${icon('info', 'xs')} Suspendue par l'équipe Scola : ${esc(cm.suspendReason)}</div>` : ''}
-    ${cm.status === 'awaiting_payment' ? `<div class="notice" style="margin-top:10px">${icon('clock', 'xs')} En attente de votre paiement de <b>${fcfa(cm.price)}</b>. Dès réception, l'équipe Scola valide la campagne.</div>` : ''}
+    ${cm.status === 'awaiting_payment' ? `<div class="notice" style="margin-top:10px">${icon('clock', 'xs')} ${cm.proof?.status === 'pending' ? `Reçu de paiement envoyé le ${esc(dateFr(cm.proof.at))} : l'équipe Scola le vérifie.` : cm.proof?.status === 'rejected' ? `Votre reçu n'a pas été validé (${esc(cm.proof.rejectReason || '')}). Envoyez-en un nouveau.` : `En attente de votre paiement de <b>${fcfa(cm.price)}</b>. Après le paiement, envoyez votre reçu.`}</div>` : ''}
     ${showStats ? `<div class="camp-stats">
       <div><b>${fmt(s.impressions)}</b><small>affichages</small></div><div><b>${fmt(s.reach)}</b><small>élèves touchés</small></div>
       <div><b>${fmt(s.clicks)}</b><small>clics${s.ctr !== null ? ` (${String(s.ctr).replace('.', ',')} %)` : ''}</small></div>
@@ -61,7 +67,7 @@ function card(cm) {
     <div class="actions" style="margin-top:10px">
       ${['draft', 'rejected', 'awaiting_payment'].includes(cm.status) ? `<button class="btn ghost" data-act="edit">${icon('edit', 'sm')} Modifier</button>` : ''}
       ${['draft', 'rejected'].includes(cm.status) ? `<button class="btn" data-act="submit">${icon('send', 'sm')} Soumettre</button>` : ''}
-      ${cm.status === 'awaiting_payment' ? `<button class="btn" data-act="pay">Comment payer ?</button>` : ''}
+      ${cm.status === 'awaiting_payment' ? `${cm.paymentLink ? `<a class="btn" href="${esc(cm.paymentLink)}" target="_blank" rel="noopener">${icon('ext', 'sm')} Payer</a>` : ''}<button class="btn ${cm.paymentLink ? 'ghost' : ''}" data-act="proof">${icon('clip', 'sm')} Envoyer mon reçu</button><button class="btn text" data-act="pay">Comment payer ?</button>` : ''}
       ${showStats ? `<button class="btn ghost" data-act="stats">${icon('poll', 'sm')} Résultats détaillés</button>` : ''}
       ${['draft', 'rejected'].includes(cm.status) ? `<button class="btn text danger" data-act="delete">Supprimer</button>` : ''}</div></div></div>`;
 }

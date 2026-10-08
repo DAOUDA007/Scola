@@ -3,7 +3,7 @@
 import { $, h, esc, icon, avatar, listTime, fullDate } from '/js/util.js';
 import { toast, fail, modal, confirmBox, promptBox } from '/js/ui.js';
 import { mountLine, barList, fmt } from '/js/charts.js';
-import { fcfa, dateFr } from './monetisation.js';
+import { fcfa, dateFr, proofRow } from './monetisation.js';
 
 let X; // { get, post, setTitle, bindRows, refreshBadge }
 export function setup(ctx) { X = ctx; }
@@ -75,6 +75,7 @@ export async function campaignDetail(c, id) {
       </div></section>
       <section class="panel"><h2>Aperçu côté élève</h2><div class="pad">${preview(x.preview)}<p class="hint" style="margin-bottom:0">Vérifiez le texte, l'image et la promesse faite aux élèves avant de valider.</p></div></section>
     </div>
+    ${x.proofs.length ? `<section class="panel"><h2>${icon('clip', 'sm')} Reçus de paiement envoyés par l'établissement</h2>${x.proofs.map(proofRow).join('')}</section>` : ''}
     <section class="panel"><h2>Résultats</h2><div class="pad">
       <div class="cards" style="margin-bottom:12px">
         <div class="stat"><small>Affichages</small><b>${fmt(s.impressions)}</b></div><div class="stat"><small>Élèves touchés</small><b>${fmt(s.reach)}</b></div>
@@ -88,10 +89,18 @@ export async function campaignDetail(c, id) {
   const reload = () => campaignDetail(c, id);
   c.onclick = async (e) => {
     if (e.target.closest('[data-why]')) { e.preventDefault(); return modal({ title: 'Pourquoi je vois ceci ?', body: `<p style="margin-top:0">${esc(x.preview?.why || '')}</p>`, buttons: [{ label: 'Fermer', cls: '' }] }); }
+    const pf = e.target.closest('[data-pf]');
+    if (pf && e.target.closest('[data-pf-pay]')) return payForm(x, reload, x.proofs.find(p => p.id === pf.dataset.pf));
+    if (pf && e.target.closest('[data-pf-reject]')) {
+      const reason = await promptBox('Refuser ce reçu ?', { label: 'Motif (communiqué à l\'établissement)', max: 500, multiline: true });
+      if (reason === null) return;
+      try { await X.post(`/billing/proofs/${pf.dataset.pf}/reject`, { reason }); toast('Reçu refusé'); X.refreshBadge(); reload(); } catch (er) { fail(er); }
+      return;
+    }
     const a = e.target.closest('[data-a]')?.dataset.a;
     if (!a) return;
     try {
-      if (a === 'pay') return payForm(x, reload);
+      if (a === 'pay') return payForm(x, reload, x.proofs.find(p => p.status === 'pending'));
       if (a === 'approve') {
         if (!(await confirmBox('Valider cette campagne ?', `Elle sera diffusée du ${dateFr(x.start)} au ${dateFr(x.end - DAY)} auprès de ${x.describe}.`, { ok: 'Valider' }))) return;
         await X.post(`/billing/campaigns/${id}/approve`); toast('Campagne validée');
@@ -113,15 +122,17 @@ export async function campaignDetail(c, id) {
   };
 }
 
-function payForm(x, done) {
+function payForm(x, done, proof = null) {
   const body = h(`<div class="form2">
-    <div class="field"><label>Montant payé (FCFA)</label><input class="input boxed" type="number" min="0" step="100" data-amount value="${x.price}"></div>
+    <div class="field"><label>Montant payé (FCFA)</label><input class="input boxed" type="number" min="0" step="100" data-amount value="${proof?.amount ?? x.price}"></div>
     <div class="field"><label>Remise (FCFA)</label><input class="input boxed" type="number" min="0" step="100" data-discount value="0"></div>
     <div class="field"><label>Moyen de paiement</label><select class="input boxed" data-method><option value="">Choisir…</option>${Object.entries(x.methods).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select></div>
-    <div class="field"><label>Référence</label><input class="input boxed" data-ref maxlength="120"></div></div>
+    <div class="field"><label>Référence</label><input class="input boxed" data-ref maxlength="120" value="${esc(proof?.reference || '')}"></div></div>
+    ${proof ? `<p class="hint">D'après le reçu envoyé par l'établissement : <a href="${esc(proof.file.url)}" target="_blank" rel="noopener">${esc(proof.file.name)}</a>. Vérifiez le montant avant d'enregistrer.</p>` : ''}
     <div class="field"><label>Note interne</label><input class="input boxed" data-note maxlength="1000"></div>`);
+  if (proof?.method) $('[data-method]', body).value = proof.method;
   modal({ title: `Paiement — ${x.title}`, body, buttons: [{ label: 'Annuler' }, { label: 'Enregistrer et générer le reçu', cls: '', onClick: async () => {
-    const r = await X.post(`/billing/campaigns/${x.id}/payment`, { amount: Number($('[data-amount]', body).value), discount: Number($('[data-discount]', body).value || 0), method: $('[data-method]', body).value, reference: $('[data-ref]', body).value, note: $('[data-note]', body).value });
+    const r = await X.post(`/billing/campaigns/${x.id}/payment`, { amount: Number($('[data-amount]', body).value), discount: Number($('[data-discount]', body).value || 0), method: $('[data-method]', body).value, reference: $('[data-ref]', body).value, note: $('[data-note]', body).value, proofId: proof?.id });
     toast(`Paiement enregistré — reçu ${r.payment.receiptNo}. La campagne passe en revue.`);
     done();
   } }] });

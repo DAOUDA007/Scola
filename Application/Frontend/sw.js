@@ -1,7 +1,7 @@
 // Service worker : installation de l'application, fonctionnement hors connexion, notifications.
 // Comme WhatsApp, Scola s'ouvre sans réseau : l'application, les dernières discussions et les
 // médias déjà vus restent sur l'appareil ; tout est rafraîchi dès le retour du réseau.
-const VERSION = 'v9';
+const VERSION = 'v10';
 const SHELL = 'scola-shell-' + VERSION;   // code de l'application (HTML, JS, CSS, icônes, stickers)
 const API = 'scola-api';                   // dernières réponses de l'API (lecture seule hors connexion)
 const MEDIA = 'scola-media';               // photos, vocaux, documents déjà ouverts

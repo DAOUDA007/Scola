@@ -165,3 +165,11 @@ body.etab { overflow: auto; background: var(--bg); }
   .camp-prev { position: static; }
   .et-banner { flex-wrap: wrap; }
 }
+
+/* Paiements : lien de paiement, reçus envoyés, reçus Scola */
+.pay-row { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.pay-row .btn { height: 34px; }
+.proof-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--text); text-decoration: none; }
+.proof-row:last-child { border-bottom: 0; }
+.proof-row.link:hover { background: var(--hover); }
+.proof-row > svg.i { color: var(--text-3); flex: none; }

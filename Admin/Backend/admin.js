@@ -186,6 +186,7 @@ router.get('/stats', (req, res) => {
     // Données conservées entre deux redémarrages ? (Render efface son disque à chaque mise en veille.)
     storage: { postgres: usesPostgres(), render: !!process.env.RENDER },
     planRequests: Object.values(data.planRequests || {}).filter(r => r.status === 'pending').length,
+    paymentProofs: Object.values(data.paymentProofs || {}).filter(p => p.status === 'pending').length,
     campaignQueue: Object.values(data.campaigns || {}).filter(c => ['awaiting_payment', 'in_review'].includes(c.status)).length,
     admins: Object.keys(data.admins).length,
     signups,

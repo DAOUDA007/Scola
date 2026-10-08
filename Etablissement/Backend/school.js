@@ -347,7 +347,11 @@ router.get('/offer', (req, res) => {
   res.json({
     offer: { ...OF.offerState(s), banner: B.banner(s) }, plans, rights: OF.RIGHTS,
     requests: Object.values(data.planRequests).filter(r => r.schoolId === s.id).sort((a, b) => b.at - a.at).map(r => ({ ...r, planName: OF.planDef(r.plan).name })),
-    paymentInstructions: o.paymentInstructions,
+    paymentInstructions: o.paymentInstructions, methods: B.METHODS,
+    // Reçus de paiement envoyés par l'établissement et reçus Scola envoyés par l'administration.
+    proofs: Object.values(data.paymentProofs).filter(p => p.schoolId === s.id).sort((a, b) => b.at - a.at).slice(0, 50).map(B.proofView),
+    receipts: Object.values(data.payments).filter(p => p.schoolId === s.id && p.sentAt && !p.cancelled).sort((a, b) => b.at - a.at)
+      .map(p => ({ id: p.id, receiptNo: p.receiptNo, amount: p.amount, label: p.label, at: p.at, sentAt: p.sentAt })),
     marketingContact: OF.can(s, 'marketingSupport') ? o.marketingContact : null,
     founder: { seatsLeft: Math.max(0, o.founder.seats - OF.founderSeatsTaken()), guaranteedYears: o.founder.guaranteedYears },
   });
@@ -368,6 +372,16 @@ router.post('/offer/request', (req, res) => {
   res.json({ request: { ...r, planName: p.name }, paymentInstructions: OF.offers().paymentInstructions });
 });
 
+// « Envoyer mon reçu de paiement » : capture ou PDF du paiement, transmis à l'administration.
+router.post('/offer/proof', (req, res) => res.json(B.proofView(B.createProof(req.school, req.body))));
+
+// Reçu Scola envoyé par l'administration (consultable et imprimable dans l'espace).
+router.get('/receipts/:id', (req, res) => {
+  const p = data.payments[req.params.id];
+  if (!p || p.schoolId !== req.school.id || !p.sentAt) throw httpError(404, 'Reçu introuvable.');
+  res.json(B.paymentView(p));
+});
+
 /* ---------------- Campagnes publicitaires ---------------- */
 
 function myCampaign(req) {
@@ -386,7 +400,8 @@ router.get('/campaigns', (req, res) => {
     types: Object.values(o.campaignTypes).filter(t => t.active),
     catalog: { countries: catalog.countries, cycles: catalog.cycles.map(c => ({ id: c.id, label: c.label, niveaux: c.niveaux })), cities: catalog.cities, domains: catalog.domains },
     country: catalog.countries.includes(s.country) ? s.country : "Côte d'Ivoire",
-    frequencyCap: o.frequencyCap, threshold: o.privacyThreshold || 10, paymentInstructions: o.paymentInstructions,
+    frequencyCap: o.frequencyCap, threshold: o.privacyThreshold || 10, paymentInstructions: o.paymentInstructions, methods: B.METHODS,
+    proofs: Object.values(data.paymentProofs).filter(p => p.schoolId === s.id && p.kind === 'campaign').map(B.proofView),
   });
 });
 

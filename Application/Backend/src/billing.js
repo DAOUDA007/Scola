@@ -314,6 +314,82 @@ function runReminders(t = C.now()) {
 setTimeout(() => runReminders(), 20_000).unref();
 setInterval(() => runReminders(), 3600e3).unref();
 
+/* ---------------- Preuves de paiement envoyées par les établissements ---------------- */
+
+// L'établissement paie (lien de paiement, Wave…), puis envoie la capture ou le PDF de son reçu.
+// L'administration la vérifie, enregistre le paiement (reçu Scola numéroté) ou la refuse avec un motif.
+const isMedia = (u) => typeof u === 'string' && /^\/media\/[a-f0-9]{32}(\.[a-z0-9]{1,7})?$/.test(u);
+function createProof(s, b) {
+  const kind = b.kind === 'campaign' ? 'campaign' : 'subscription';
+  const f = b.file;
+  if (!f || !isMedia(f.url) || !/^(image\/|application\/pdf)/.test(String(f.mime || ''))) throw bad('Joignez la photo ou le PDF de votre reçu de paiement.');
+  const proof = {
+    id: C.uid('pf_'), schoolId: s.id, kind, at: C.now(), status: 'pending',
+    amount: Number.isInteger(Number(b.amount)) && Number(b.amount) >= 0 ? Number(b.amount) : null,
+    method: METHODS[b.method] ? b.method : '', reference: clip(b.reference, 120), note: clip(b.note, 1000),
+    file: { url: f.url, name: clip(f.name, 120) || 'reçu', mime: String(f.mime).slice(0, 80), size: Number(f.size) || 0 },
+  };
+  if (kind === 'subscription') {
+    const p = OF.offers().plans[b.plan];
+    if (!p || p.code === 'gratuit') throw bad('Choisissez la formule payée.');
+    proof.plan = p.code;
+  } else {
+    const c = data.campaigns[b.campaignId];
+    if (!c || c.schoolId !== s.id) throw bad('Campagne introuvable.', 404);
+    if (c.status !== 'awaiting_payment') throw bad('Cette campagne n\'attend pas de paiement.');
+    proof.campaignId = c.id;
+  }
+  data.paymentProofs[proof.id] = proof;
+  save();
+  const admins = Object.values(data.admins).map(a => a.email).filter(Boolean);
+  if (admins.length) mail.send({ to: admins.join(','), subject: `Scola — reçu de paiement reçu : ${s.name}`, text: `« ${s.name} » a envoyé son reçu de paiement (${proof.kind === 'subscription' ? 'formule ' + OF.planDef(proof.plan).name : 'campagne « ' + data.campaigns[proof.campaignId].title + ' »'}${proof.amount !== null ? ', ' + fcfa(proof.amount) : ''}).\n\nVérifiez-le et enregistrez le paiement dans l'administration, rubrique Abonnements.` });
+  return proof;
+}
+function getProof(id) {
+  const p = data.paymentProofs[id];
+  if (!p) throw bad('Reçu introuvable.', 404);
+  return p;
+}
+// Paiement enregistré à partir d'une preuve : elle est marquée acceptée et liée au reçu Scola.
+function acceptProof(id, paymentId, admin) {
+  const p = data.paymentProofs[id];
+  if (!p || p.status !== 'pending') return;
+  Object.assign(p, { status: 'accepted', paymentId, handledBy: admin.id, handledAt: C.now() });
+  save();
+}
+function rejectProof(p, reason, admin) {
+  if (p.status !== 'pending') throw bad('Ce reçu a déjà été traité.');
+  reason = clip(reason, 500);
+  if (!reason) throw bad('Indiquez le motif : il est communiqué à l\'établissement.');
+  Object.assign(p, { status: 'rejected', rejectReason: reason, handledBy: admin.id, handledAt: C.now() });
+  save();
+  const s = data.schools[p.schoolId];
+  if (s?.email) mail.send({ to: s.email, subject: 'Scola — votre reçu de paiement', text: `Bonjour,\n\nLe reçu de paiement envoyé le ${dateFr(p.at)} n'a pas pu être validé.\nMotif : ${reason}\n\nVous pouvez envoyer un nouveau reçu depuis votre espace établissement (Ma formule).\n\nL'équipe Scola` });
+  return p;
+}
+function proofView(p) {
+  const s = data.schools[p.schoolId];
+  const c = p.campaignId ? data.campaigns[p.campaignId] : null;
+  return {
+    ...p, schoolName: s?.name || 'Établissement supprimé', methodLabel: METHODS[p.method] || '',
+    label: p.kind === 'subscription' ? `Formule ${OF.planDef(p.plan).name}` : `Campagne « ${c?.title || 'supprimée'} »`,
+    expected: p.kind === 'subscription' ? OF.planDef(p.plan).price : c?.price ?? null,
+    receiptNo: p.paymentId ? data.payments[p.paymentId]?.receiptNo || null : null,
+    handledByName: p.handledBy ? data.admins[p.handledBy]?.name || 'Administrateur' : null,
+  };
+}
+
+// Envoi du reçu Scola à l'établissement : visible dans son espace (Ma formule), et par e-mail si possible.
+function sendReceipt(pay, admin) {
+  if (pay.cancelled) throw bad('Ce paiement a été annulé : son reçu ne peut pas être envoyé.');
+  const s = data.schools[pay.schoolId];
+  if (!s) throw bad('Établissement supprimé.');
+  pay.sentAt = C.now();
+  pay.sentBy = admin.id;
+  save();
+  return mail.send({ to: s.email, subject: `Scola — votre reçu ${pay.receiptNo}`, text: `Bonjour,\n\nVoici votre reçu de paiement Scola n° ${pay.receiptNo} :\n${pay.label}\nMontant payé : ${fcfa(pay.amount)} (${METHODS[pay.method] || pay.method})${pay.reference ? '\nRéférence : ' + pay.reference : ''}\n\nVous pouvez le consulter et l'imprimer à tout moment dans votre espace établissement, rubrique « Ma formule ».\n\nMerci de votre confiance.\nL'équipe Scola` });
+}
+
 /* ---------------- Vues ---------------- */
 
 const adminName = (id) => (id ? data.admins[id]?.name || 'Administrateur' : 'Système');
@@ -337,6 +413,7 @@ function paymentView(p) {
 }
 
 module.exports = {
+  createProof, getProof, acceptProof, rejectProof, proofView, sendReceipt,
   METHODS, KINDS, addMonths, quote, recordSubscription, recordCampaignPayment, getSub, extend, changePlan, cancel, banner, runReminders,
   founderEligibility, checkFounderContinuity, subView, paymentView, startOnlinePayment, nextReceiptNo, fcfa, dateFr,
 };

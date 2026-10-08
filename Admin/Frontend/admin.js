@@ -141,7 +141,7 @@ async function refreshBadge() {
   try { const s = await get('/schools?status=pending'); put('schools', s.counts.pending || 0, 'var(--brand)'); } catch {}
   try {
     const st = await get('/stats');
-    put('billing', st.planRequests || 0, 'var(--brand)');
+    put('billing', (st.planRequests || 0) + (st.paymentProofs || 0), 'var(--brand)');
     put('campaigns', st.campaignQueue || 0, 'var(--brand)');
   } catch {}
 }

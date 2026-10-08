@@ -1,6 +1,6 @@
 // Espace établissement : « Ma formule » (offre en cours, demande de formule) et contenus de la
 // page officielle selon la formule (formations structurées, bloc Inscriptions, galerie photos).
-import { $, h, esc, icon } from '/js/util.js';
+import { $, h, esc, icon, pickFiles, fileSize } from '/js/util.js';
 import { toast, fail, modal, confirmBox } from '/js/ui.js';
 import { compressImage } from '/js/media.js';
 
@@ -26,7 +26,8 @@ export function locked(text) {
 }
 
 /* ---------------- Ma formule ---------------- */
-export async function formulePage(c) {
+export async function formulePage(c, id) {
+  if (id && id.startsWith('recu-')) return receiptSheet(c, id.slice(5));
   let r;
   try { r = await X.get('/offer'); } catch (e) { c.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   const o = r.offer;
@@ -64,12 +65,19 @@ export async function formulePage(c) {
         <div class="price">${fcfa(p.price)} <small>/ an</small></div><div class="faint" style="font-size:13px;min-height:34px">${esc(p.target)}</div>
         ${p.code === 'fondateur' ? `<p class="hint" style="margin:6px 0">${r.founder.seatsLeft} place(s) restante(s). Badge « Fondateur » permanent et tarif garanti ${r.founder.guaranteedYears} an(s) si vous renouvelez sans interruption.</p>` : ''}
         <ul class="incl small">${p.quotas.postsPerMonth === null ? `<li class="on">${icon('check', 'xs')} Publications illimitées</li>` : ''}${extra.map(([, l]) => `<li class="on">${icon('check', 'xs')} ${esc(l)}</li>`).join('')}${p.quotas.featuredPerMonth && !(cur?.quotas.featuredPerMonth) ? `<li class="on">${icon('check', 'xs')} ${p.quotas.featuredPerMonth} mises en avant par mois</li>` : ''}${p.quotas.campaignCredits ? `<li class="on">${icon('check', 'xs')} ${p.quotas.campaignCredits} campagne(s) incluse(s) par an</li>` : ''}${p.quotas.nationalCredits ? `<li class="on">${icon('check', 'xs')} ${p.quotas.nationalCredits} campagne(s) nationale(s) incluse(s)</li>` : ''}</ul>
-        <button class="btn ${isCur ? 'ghost' : ''} block" data-req="${p.code}" ${pending ? 'disabled' : ''}>${isCur ? 'Renouveler' : o.status !== 'none' && cur && p.order > (cur.order ?? 0) ? 'Passer à cette formule' : 'Demander cette formule'}</button></div>`;
+        <button class="btn ${isCur ? 'ghost' : ''} block" data-req="${p.code}" ${pending ? 'disabled' : ''}>${isCur ? 'Renouveler' : o.status !== 'none' && cur && p.order > (cur.order ?? 0) ? 'Passer à cette formule' : 'Demander cette formule'}</button>
+        <div class="pay-row">${p.paymentLink ? `<a class="btn ghost" href="${esc(p.paymentLink)}" target="_blank" rel="noopener">${icon('ext', 'sm')} Payer</a>` : ''}<button class="btn text" data-proof="${p.code}">${icon('clip', 'sm')} Envoyer mon reçu</button></div></div>`;
     }).join('')}</div>
+    ${paymentsPanel(r)}
     <div class="panel"><h2>Comment payer ?</h2><div class="pad" style="white-space:pre-wrap;font-size:14px;line-height:1.7">${esc(r.paymentInstructions)}</div>
       <p class="hint pad" style="margin:0;padding-top:0">Le paiement en ligne n'est pas encore disponible : après votre demande, l'équipe Scola enregistre votre paiement et vous envoie un reçu. Un renouvellement anticipé ne vous fait perdre aucun jour. Une montée en gamme en cours d'année est facturée au prorata.</p></div>
     ${r.requests.length ? `<div class="panel"><h2>Vos demandes</h2><div class="pad" style="font-size:14px;line-height:1.9">${r.requests.map(q => `${esc(dateFr(q.at))} — formule <b>${esc(q.planName)}</b> : ${{ pending: '<span class="tag warn">en cours</span>', done: '<span class="tag ok">traitée</span>', rejected: '<span class="tag">classée</span>' }[q.status]}`).join('<br>')}</div></div>` : ''}`;
   c.onclick = async (e) => {
+    const pf = e.target.closest('[data-proof]');
+    if (pf) {
+      const p = r.plans.find(x => x.code === pf.dataset.proof);
+      return proofForm({ kind: 'subscription', plan: p.code, label: `Formule ${p.name}`, amount: p.price, methods: r.methods, plans: r.plans }, () => formulePage(c));
+    }
     const b = e.target.closest('[data-req]');
     if (!b) return;
     const p = r.plans.find(x => x.code === b.dataset.req);
@@ -77,10 +85,77 @@ export async function formulePage(c) {
       <div class="field"><label>Message (facultatif)</label><textarea class="input boxed" rows="3" maxlength="1000" data-m placeholder="Ex. moyen de paiement souhaité, personne à contacter…"></textarea></div></div>`);
     modal({ title: 'Demander une formule', body, buttons: [{ label: 'Annuler' }, { label: 'Envoyer la demande', cls: '', onClick: async () => {
       const res = await X.post('/offer/request', { plan: p.code, message: $('[data-m]', body).value });
-      modal({ title: 'Demande envoyée', body: `<p style="margin-top:0">Votre demande a bien été transmise. Pour finaliser, effectuez le paiement selon les instructions ci-dessous :</p><div class="notice" style="white-space:pre-wrap">${esc(res.paymentInstructions)}</div><p class="hint">Dès réception, votre formule est activée et un reçu vous est envoyé.</p>`, buttons: [{ label: 'Compris', cls: '' }] });
+      modal({ title: 'Demande envoyée', body: `<p style="margin-top:0">Votre demande a bien été transmise. Pour finaliser, effectuez le paiement${p.paymentLink ? ' avec le lien ci-dessous' : ''} selon les instructions :</p>${p.paymentLink ? `<p><a class="btn" href="${esc(p.paymentLink)}" target="_blank" rel="noopener">${icon('ext', 'sm')} Payer la formule ${esc(p.name)}</a></p>` : ''}<div class="notice" style="white-space:pre-wrap">${esc(res.paymentInstructions)}</div><p class="hint">Après le paiement, cliquez sur « Envoyer mon reçu » sous la formule pour transmettre votre preuve de paiement. Dès vérification, votre formule est activée et le reçu Scola vous est envoyé.</p>`, buttons: [{ label: 'Compris', cls: '' }] });
       formulePage(c);
     } }] });
   };
+}
+
+/* ---------------- Paiements : envoi du reçu, suivi, reçus Scola ---------------- */
+const PST = { pending: ['En vérification', 'warn'], accepted: ['Validé', 'ok'], rejected: ['Refusé', 'red'] };
+
+function paymentsPanel(r) {
+  if (!r.proofs.length && !r.receipts.length) return '';
+  return `<div class="panel"><h2>Mes paiements</h2>
+    ${r.proofs.length ? `<div class="pad"><h3 class="h3">Reçus que vous avez envoyés</h3>${r.proofs.map(p => `<div class="proof-row">${icon('file', 'sm')}<div class="grow"><b>${esc(p.label)}</b>${p.amount !== null ? ` · ${fcfa(p.amount)}` : ''}${p.methodLabel ? ` · ${esc(p.methodLabel)}` : ''}
+      <div class="faint" style="font-size:12.5px">Envoyé le ${esc(dateFr(p.at))} · <a href="${esc(p.file.url)}" target="_blank" rel="noopener">${esc(p.file.name)}</a></div>
+      ${p.status === 'rejected' ? `<div class="faint" style="font-size:12.5px">Motif : ${esc(p.rejectReason || '')}</div>` : ''}</div>
+      <span class="tag ${PST[p.status][1]}">${PST[p.status][0]}</span>${p.receiptNo ? ` <span class="faint" style="font-size:12.5px">reçu ${esc(p.receiptNo)}</span>` : ''}</div>`).join('')}</div>` : ''}
+    ${r.receipts.length ? `<div class="pad" style="padding-top:0"><h3 class="h3">Reçus Scola</h3>${r.receipts.map(x => `<a class="proof-row link" href="#/formule/recu-${esc(x.id)}">${icon('checkSq', 'sm')}<div class="grow"><b>Reçu ${esc(x.receiptNo)}</b> · ${fcfa(x.amount)}<div class="faint" style="font-size:12.5px">${esc(x.label)}</div></div>${icon('chevR', 'sm')}</a>`).join('')}</div>` : ''}</div>`;
+}
+
+// Formulaire « Envoyer mon reçu de paiement » (formule ou campagne) : fichier obligatoire.
+export function proofForm({ kind, plan, campaignId, label, amount, methods = {}, plans = null }, done) {
+  let file = null;
+  const body = h(`<div>
+    <p class="muted" style="margin-top:0;font-size:14px">Après votre paiement, envoyez-nous la capture d'écran ou le PDF du reçu. L'équipe Scola le vérifie, active votre ${kind === 'campaign' ? 'campagne' : 'formule'} et vous envoie le reçu Scola.</p>
+    ${plans ? `<div class="field"><label>Formule payée</label><select class="input" data-plan>${plans.map(p => `<option value="${p.code}" data-price="${p.price}" ${p.code === plan ? 'selected' : ''}>${esc(p.name)} — ${fcfa(p.price)}</option>`).join('')}</select></div>` : `<p><b>${esc(label)}</b></p>`}
+    <div class="et-grid">
+      <div class="field"><label>Montant payé (FCFA)</label><input class="input" type="number" min="0" step="100" data-amount value="${amount ?? ''}"></div>
+      <div class="field"><label>Moyen de paiement</label><select class="input" data-method><option value="">Choisir…</option>${Object.entries(methods).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select></div>
+      <div class="field full"><label>Référence de la transaction</label><input class="input" data-ref maxlength="120" placeholder="Ex. identifiant Wave, numéro de transaction"></div>
+    </div>
+    <div class="field"><label>Reçu de paiement (photo ou PDF)</label><div class="row" style="flex-wrap:wrap"><button type="button" class="btn ghost" data-file>${icon('clip', 'sm')} Choisir le fichier</button><span class="faint" data-fname style="font-size:13px">Aucun fichier</span></div></div>
+    <div class="field"><label>Message (facultatif)</label><textarea class="input boxed" rows="2" maxlength="1000" data-note></textarea></div></div>`);
+  $('[data-plan]', body)?.addEventListener('change', (e) => { $('[data-amount]', body).value = e.target.selectedOptions[0].dataset.price; });
+  $('[data-file]', body).onclick = async () => {
+    const files = await pickFiles({ accept: 'image/*,application/pdf' });
+    if (!files) return;
+    $('[data-fname]', body).textContent = 'Envoi…';
+    try { file = await X.uploadFile(files[0]); $('[data-fname]', body).textContent = `${file.name} (${fileSize(file.size)})`; }
+    catch (e) { file = null; $('[data-fname]', body).textContent = 'Aucun fichier'; fail(e); }
+  };
+  modal({ title: 'Envoyer mon reçu de paiement', body, buttons: [{ label: 'Annuler' }, { label: 'Envoyer', cls: '', onClick: async () => {
+    if (!file) throw new Error('Joignez la photo ou le PDF de votre reçu de paiement.');
+    await X.post('/offer/proof', {
+      kind, campaignId, plan: $('[data-plan]', body)?.value || plan, file,
+      amount: $('[data-amount]', body).value === '' ? null : Number($('[data-amount]', body).value),
+      method: $('[data-method]', body).value, reference: $('[data-ref]', body).value, note: $('[data-note]', body).value,
+    });
+    toast('Reçu envoyé : l\'équipe Scola le vérifie');
+    done?.();
+  } }] });
+}
+
+// Reçu Scola envoyé par l'administration : consultable et imprimable.
+async function receiptSheet(c, id) {
+  let p;
+  try { p = await X.get('/receipts/' + id); } catch (e) { c.innerHTML = `<p><a href="#/formule">← Ma formule</a></p><div class="empty">${esc(e.message)}</div>`; return; }
+  const sub = p.subscription, iss = p.issuer || {};
+  c.innerHTML = `<div class="no-print toolbar-row"><a href="#/formule" class="grow">← Ma formule</a><button class="btn" data-print>${icon('download', 'sm')} Imprimer / enregistrer en PDF</button></div>
+    <article class="receipt">
+      <header><div><div class="receipt-brand"><span class="logo"></span>${esc(iss.name || 'Scola')}</div>
+        <div class="faint">${esc(iss.address || '')}${iss.phone ? '<br>' + esc(iss.phone) : ''}${iss.email ? '<br>' + esc(iss.email) : ''}${iss.legal ? '<br>' + esc(iss.legal) : ''}</div></div>
+        <div style="text-align:right"><h2>Reçu de paiement</h2><div><b>N° ${esc(p.receiptNo)}</b></div><div class="faint">Émis le ${esc(dateFr(p.at))}</div></div></header>
+      <section><h3>Reçu de</h3><p><b>${esc(p.school.name)}</b><br>${esc([p.school.address, p.school.city, p.school.country].filter(Boolean).join(', '))}</p></section>
+      <table class="receipt-lines"><thead><tr><th>Désignation</th><th>Montant</th></tr></thead><tbody>
+        <tr><td>${esc(p.label || 'Paiement')}</td><td>${fcfa(p.amount + (p.discount || 0))}</td></tr>
+        ${p.discount ? `<tr><td>Remise</td><td>− ${fcfa(p.discount)}</td></tr>` : ''}
+      </tbody><tfoot><tr><td>Total payé</td><td>${fcfa(p.amount)}</td></tr></tfoot></table>
+      <dl class="kv"><dt>Moyen de paiement</dt><dd>${esc(p.methodLabel)}</dd>${p.reference ? `<dt>Référence</dt><dd>${esc(p.reference)}</dd>` : ''}
+        ${sub ? `<dt>Période couverte</dt><dd>du ${esc(dateFr(sub.start))} au ${esc(dateFr(sub.end))}</dd>` : ''}</dl>
+      <footer class="faint">Ce reçu atteste le paiement ci-dessus. Merci de votre confiance.</footer></article>`;
+  $('[data-print]', c).onclick = () => print();
 }
 
 /* ---------------- Page officielle : formations, inscriptions, galerie ---------------- */

@@ -25,7 +25,7 @@ let F = { q: '', status: '', plan: '', soon: '' };
 
 export async function billing(c) {
   X.setTitle('Abonnements');
-  c.innerHTML = '<div data-cards></div><div data-req></div><div class="toolbar"><div class="search-box">' + icon('search', 'sm') + `<input placeholder="Établissement, ville ou e-mail" data-q value="${esc(F.q)}"></div><div class="seg" data-seg></div><select data-plan></select></div><section class="panel"><div class="tbl-wrap" data-t></div></section>`;
+  c.innerHTML = '<div data-cards></div><div data-proofs></div><div data-req></div><div class="toolbar"><div class="search-box">' + icon('search', 'sm') + `<input placeholder="Établissement, ville ou e-mail" data-q value="${esc(F.q)}"></div><div class="seg" data-seg></div><select data-plan></select></div><section class="panel"><div class="tbl-wrap" data-t></div></section>`;
   const load = async () => {
     const r = await X.get(`/billing/subscriptions?q=${encodeURIComponent(F.q)}&status=${F.status}&plan=${F.plan}&soon=${F.soon}`).catch(fail);
     if (!r) return;
@@ -35,7 +35,10 @@ export async function billing(c) {
       <div class="stat ${k.grace ? 'alert' : ''}"><small>${icon('clock', 'xs')} En période de grâce</small><b>${k.grace}</b><span class="sub">à relancer</span></div>
       <div class="stat"><small>${icon('calendar', 'xs')} Échéance sous 60 jours</small><b>${k.soon}</b><span class="sub"><a href="#" data-soon>Voir</a></span></div>
       <div class="stat"><small>${icon('star', 'xs')} Places Fondateur</small><b>${r.founder.taken} / ${r.founder.seats}</b><span class="sub">${Math.max(0, r.founder.seats - r.founder.taken)} restante(s) · tarif garanti ${r.founder.guaranteedYears} an(s)</span></div>
-      <div class="stat ${r.pendingRequests ? 'alert' : ''}"><small>${icon('bell', 'xs')} Demandes de formule</small><b>${r.pendingRequests}</b><span class="sub">en attente</span></div></div>`;
+      <div class="stat ${r.pendingRequests ? 'alert' : ''}"><small>${icon('bell', 'xs')} Demandes de formule</small><b>${r.pendingRequests}</b><span class="sub">en attente</span></div>
+      <div class="stat ${r.pendingProofs ? 'alert' : ''}"><small>${icon('clip', 'xs')} Reçus à vérifier</small><b>${r.pendingProofs}</b><span class="sub">envoyés par les établissements</span></div></div>`;
+    const proofs = r.pendingProofs ? await X.get('/billing/proofs?status=pending').catch(() => []) : [];
+    $('[data-proofs]', c).innerHTML = proofs.length ? `<section class="panel"><h2>${icon('clip', 'sm')} Reçus de paiement à vérifier</h2>${proofs.map(proofRow).join('')}</section>` : '';
     $('[data-seg]', c).innerHTML = [['', 'Tous', k.all], ['active', 'Actifs', k.active], ['grace', 'En grâce', k.grace], ['none', 'Sans abonnement', k.none]]
       .map(([v, l, n]) => `<button class="${v === F.status && !F.soon ? 'on' : ''}" data-st="${v}">${l} <span class="faint">${n}</span></button>`).join('')
       + `<button class="${F.soon ? 'on' : ''}" data-st="soon">Échéance ≤ 60 j <span class="faint">${k.soon}</span></button>`;
@@ -49,7 +52,8 @@ export async function billing(c) {
     $('[data-req]', c).innerHTML = reqs.length ? `<section class="panel"><h2>${icon('bell', 'sm')} Demandes de formule en attente</h2><table class="tbl"><tbody>
       ${reqs.map(q => `<tr data-go="#/billing/${q.schoolId}"><td><b>${esc(q.schoolName)}</b>${q.message ? `<div class="faint" style="font-size:12.5px">« ${esc(q.message)} »</div>` : ''}</td><td>demande <b>${esc(q.planName)}</b></td><td class="faint">${esc(listTime(q.at))}</td><td class="num"><button class="btn text" data-go="#/billing/${q.schoolId}">Traiter</button></td></tr>`).join('')}</tbody></table></section>` : '';
   };
-  c.addEventListener('click', (e) => {
+  c.addEventListener('click', async (e) => {
+    if (await proofClick(e, load)) return;
     const b = e.target.closest('[data-st]');
     if (b) { if (b.dataset.st === 'soon') { F.soon = '60'; F.status = ''; } else { F.status = b.dataset.st; F.soon = ''; } load(); }
     if (e.target.closest('[data-soon]')) { e.preventDefault(); F.soon = '60'; F.status = ''; load(); }
@@ -76,6 +80,7 @@ export async function billingDetail(c, id) {
       <div style="margin-top:6px">${esc(o.name)} ${pstTag(o.status)} ${founderTag(s.founder)} ${s.verified ? (s.verifiedShown ? '<span class="tag ok">Vérifié</span>' : '<span class="tag" title="Le badge n\'est affiché qu\'à partir de la formule Standard">Vérifié (masqué : formule insuffisante)</span>') : ''}</div></div>
       <div class="actions"><button class="btn" data-a="pay">${icon('plus', 'sm')} Enregistrer un paiement</button></div></div>
       ${s.banner ? `<div class="pad" style="padding-top:0"><div class="notice ${s.banner.level}">${esc(s.banner.text)}</div></div>` : ''}</section>
+    ${s.proofs.length ? `<section class="panel"><h2>${icon('clip', 'sm')} Reçus de paiement envoyés par l'établissement</h2>${s.proofs.map(proofRow).join('')}</section>` : ''}
     ${pend ? `<section class="panel"><h2>${icon('bell', 'sm')} Demande en attente</h2><div class="pad row" style="flex-wrap:wrap"><div class="grow">Formule demandée : <b>${esc(pend.planName)}</b> · ${esc(fullDate(pend.at))}${pend.message ? `<div class="faint">« ${esc(pend.message)} »</div>` : ''}</div>
       <button class="btn" data-a="pay" data-plan="${pend.plan}">Enregistrer le paiement</button><button class="btn ghost" data-req="${pend.id}">Refuser / classer</button></div></section>` : ''}
     <div class="grid2">
@@ -86,7 +91,7 @@ export async function billingDetail(c, id) {
         <dt>Publications ce mois</dt><dd>${o.usage.postsThisMonth}${o.quotas.postsPerMonth !== null ? ` / ${o.quotas.postsPerMonth}` : ' (illimité)'}</dd>
         <dt>Offre Fondateur</dt><dd>${s.founder ? `Place n°${s.founder.seat}${s.founder.rateLost ? ' — <b>tarif perdu</b> (interruption)' : ` — tarif garanti jusqu'au ${esc(dateFr(s.founder.rateUntil))}`}` : esc(s.founderEligibility.reason)}</dd>
       </dl></div></section>
-      <section class="panel"><h2>Paiements</h2>${s.payments.length ? `<table class="tbl"><tbody>${s.payments.map(p => `<tr data-go="#/receipt/${p.id}" ${p.cancelled ? 'style="opacity:.55"' : ''}><td><b>${fcfa(p.amount)}</b><div class="faint" style="font-size:12px">${esc(p.methodLabel)}${p.reference ? ' · ' + esc(p.reference) : ''}</div></td><td>${esc(dateFr(p.at))}${p.cancelled ? ' <span class="tag red">Annulé</span>' : ''}</td><td class="num"><a href="#/receipt/${p.id}">Reçu ${esc(p.receiptNo)}</a></td></tr>`).join('')}</tbody></table>` : '<div class="empty">Aucun paiement enregistré.</div>'}</section>
+      <section class="panel"><h2>Paiements</h2>${s.payments.length ? `<table class="tbl"><tbody>${s.payments.map(p => `<tr data-go="#/receipt/${p.id}" ${p.cancelled ? 'style="opacity:.55"' : ''}><td><b>${fcfa(p.amount)}</b><div class="faint" style="font-size:12px">${esc(p.methodLabel)}${p.reference ? ' · ' + esc(p.reference) : ''}</div></td><td>${esc(dateFr(p.at))}${p.cancelled ? ' <span class="tag red">Annulé</span>' : ''}</td><td class="num"><a href="#/receipt/${p.id}">Reçu ${esc(p.receiptNo)}</a>${p.sentAt ? '<div class="faint" style="font-size:12px">envoyé</div>' : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Aucun paiement enregistré.</div>'}</section>
     </div>
     <section class="panel"><h2>Historique des abonnements</h2><div class="tbl-wrap">${s.subscriptions.length ? `<table class="tbl"><thead><tr><th>Formule</th><th>Période</th><th>Montant</th><th>Saisi par</th><th></th></tr></thead><tbody>
       ${s.subscriptions.map(x => `<tr ${x.cancelled ? 'style="opacity:.55"' : ''}><td><b>${esc(x.planName)}</b><div class="faint" style="font-size:12px">${esc(x.kindLabel)}${x.founderRate ? ' · tarif Fondateur' : ''}</div>${x.cancelled ? `<span class="tag red">Annulé</span>` : ''}</td>
@@ -98,6 +103,7 @@ export async function billingDetail(c, id) {
   c.onclick = async (e) => {
     const t = e.target;
     try {
+      if (await proofClick(e, reload, s)) return;
       const pay = t.closest('[data-a=pay]');
       if (pay) return paymentForm(s, pay.dataset.plan || pend?.plan);
       const go = t.closest('tr[data-go]');
@@ -141,7 +147,7 @@ async function changePlanForm(subId, done) {
 }
 
 // Saisie d'un paiement : formule, montant, moyen, référence, date de début (fin = début + 12 mois).
-async function paymentForm(s, preset) {
+async function paymentForm(s, preset, proof = null) {
   const plans = Object.values((await X.get('/billing/offers')).plans).sort((x, y) => x.order - y.order);
   const buyable = plans.filter(p => p.code !== 'gratuit');
   const body = h(`<div class="pay-form">
@@ -155,7 +161,8 @@ async function paymentForm(s, preset) {
       <div class="field"><label>Moyen de paiement</label><select class="input boxed" data-method><option value="">Choisir…</option>${Object.entries(s.methods).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select></div>
       <div class="field"><label>Référence de transaction</label><input class="input boxed" data-ref maxlength="120" placeholder="Ex. identifiant Wave, n° de chèque"></div>
     </div>
-    <div class="field"><label>Note interne</label><input class="input boxed" data-note maxlength="1000"></div></div>`);
+    <div class="field"><label>Note interne</label><input class="input boxed" data-note maxlength="1000"></div>
+    ${proof ? `<p class="hint">D'après le reçu envoyé par l'établissement le ${esc(dateFr(proof.at))} : <a href="${esc(proof.file.url)}" target="_blank" rel="noopener">${esc(proof.file.name)}</a>. Vérifiez le montant avant d'enregistrer.</p>` : ''}</div>`);
   let q = null;
   const endOf = () => {
     if (!q) return;
@@ -178,7 +185,8 @@ async function paymentForm(s, preset) {
       box.className = `notice ${q.founder && !q.founder.eligible ? 'danger' : 'info'}`;
       box.innerHTML = lines.join('<br>');
       $('[data-start]', body).value = isoDay(q.start);
-      $('[data-amount]', body).value = q.suggestedAmount;
+      $('[data-amount]', body).value = proof?.amount ?? q.suggestedAmount;
+      if (proof) { $('[data-method]', body).value = proof.method || ''; $('[data-ref]', body).value = proof.reference || ''; }
       endOf();
     } catch (e) { fail(e); }
   };
@@ -191,7 +199,7 @@ async function paymentForm(s, preset) {
     const r = await X.post(`/billing/schools/${s.id}/subscriptions`, {
       plan: $('[data-plan]', body).value, start: fromIso($('[data-start]', body).value), amount: Number(amount),
       discount: Number($('[data-discount]', body).value || 0), method: $('[data-method]', body).value,
-      reference: $('[data-ref]', body).value, note: $('[data-note]', body).value,
+      reference: $('[data-ref]', body).value, note: $('[data-note]', body).value, proofId: proof?.id,
     });
     toast(`Paiement enregistré — reçu ${r.payment.receiptNo}`);
     X.refreshBadge();
@@ -207,7 +215,10 @@ export async function receipt(c, id) {
   X.setTitle('Reçu ' + p.receiptNo);
   const sub = p.subscription;
   const iss = p.issuer || {};
-  c.innerHTML = `<div class="no-print toolbar"><a href="#/billing/${p.school.id}" class="grow">← Abonnement de ${esc(p.school.name)}</a><button class="btn" data-print>${icon('download', 'sm')} Imprimer / enregistrer en PDF</button></div>
+  c.innerHTML = `<div class="no-print toolbar"><a href="#/billing/${p.school.id}" class="grow">← Abonnement de ${esc(p.school.name)}</a>
+      ${p.cancelled ? '' : `<button class="btn ${p.sentAt ? 'ghost' : ''}" data-send>${icon('send', 'sm')} ${p.sentAt ? 'Renvoyer le reçu' : 'Envoyer le reçu à l\'établissement'}</button>`}
+      <button class="btn ghost" data-print>${icon('download', 'sm')} Imprimer / enregistrer en PDF</button></div>
+    ${p.sentAt ? `<p class="no-print hint" style="margin-top:-6px">${icon('check', 'xs')} Envoyé à l'établissement le ${esc(dateFr(p.sentAt))} : il le retrouve dans son espace, rubrique « Ma formule ».</p>` : ''}
     <article class="receipt">
       ${p.cancelled ? '<div class="receipt-void">ANNULÉ</div>' : ''}
       <header><div><div class="receipt-brand"><span class="logo"></span>${esc(iss.name || 'Scola')}</div>
@@ -223,6 +234,49 @@ export async function receipt(c, id) {
       <footer class="faint">Ce reçu atteste le paiement ci-dessus. Merci de votre confiance.</footer>
     </article>`;
   $('[data-print]', c).onclick = () => print();
+  $('[data-send]', c)?.addEventListener('click', async () => {
+    try {
+      const r = await X.post(`/billing/payments/${id}/send`);
+      toast(r.emailed ? 'Reçu envoyé : visible dans l\'espace de l\'établissement et par e-mail' : 'Reçu envoyé : visible dans l\'espace de l\'établissement (rubrique Ma formule)');
+      receipt(c, id);
+    } catch (e) { fail(e); }
+  });
+}
+
+/* ---------------- Reçus de paiement envoyés par les établissements ---------------- */
+const PRS = { pending: ['À vérifier', 'warn'], accepted: ['Validé', 'ok'], rejected: ['Refusé', 'red'] };
+export function proofRow(p) {
+  const diff = p.amount !== null && p.expected !== null && p.amount !== p.expected;
+  return `<div class="report" data-pf="${esc(p.id)}"><div class="row" style="flex-wrap:wrap"><span class="tag ${PRS[p.status][1]}">${PRS[p.status][0]}</span>
+      <b class="grow">${esc(p.schoolName)} — ${esc(p.label)}</b><span class="faint" style="font-size:12.5px">${esc(listTime(p.at))}</span></div>
+    <div style="margin:6px 0;font-size:14px">${p.amount !== null ? `Montant déclaré : <b>${fcfa(p.amount)}</b>${diff ? ` <span class="tag warn">attendu ${fcfa(p.expected)}</span>` : ''}` : 'Montant non précisé'}${p.methodLabel ? ` · ${esc(p.methodLabel)}` : ''}${p.reference ? ` · réf. ${esc(p.reference)}` : ''}</div>
+    ${p.note ? `<div class="faint" style="font-size:13px">« ${esc(p.note)} »</div>` : ''}
+    ${p.status === 'rejected' ? `<div class="faint" style="font-size:13px">Motif du refus : ${esc(p.rejectReason || '')}</div>` : ''}
+    ${p.status === 'accepted' && p.receiptNo ? `<div class="faint" style="font-size:13px">Paiement enregistré : reçu ${esc(p.receiptNo)}</div>` : ''}
+    <div class="actions" style="margin-top:8px"><a class="btn ghost" href="${esc(p.file.url)}" target="_blank" rel="noopener">${icon('eye', 'sm')} Voir le reçu</a>
+      ${p.status === 'pending' ? `<button class="btn" data-pf-pay>${icon('check', 'sm')} Enregistrer le paiement</button><button class="btn text danger" data-pf-reject>Refuser</button>` : ''}</div></div>`;
+}
+// Actions sur un reçu : enregistrer le paiement (prérempli) ou le refuser avec un motif.
+export async function proofClick(e, reload, school = null) {
+  const row = e.target.closest('[data-pf]');
+  if (!row || !e.target.closest('[data-pf-pay],[data-pf-reject]')) return false;
+  const proofs = school ? school.proofs : await X.get('/billing/proofs?status=pending');
+  const p = proofs.find(x => x.id === row.dataset.pf);
+  if (!p) return true;
+  try {
+    if (e.target.closest('[data-pf-reject]')) {
+      const reason = await promptBox('Refuser ce reçu ?', { label: 'Motif (communiqué à l\'établissement)', placeholder: 'Ex. montant incomplet, reçu illisible', max: 500, multiline: true });
+      if (reason === null) return true;
+      await X.post(`/billing/proofs/${p.id}/reject`, { reason });
+      toast('Reçu refusé : l\'établissement est informé');
+      X.refreshBadge();
+      reload();
+      return true;
+    }
+    if (p.kind === 'campaign') { location.hash = '#/campaigns/' + p.campaignId; return true; }
+    paymentForm(school || await X.get('/billing/schools/' + p.schoolId), p.plan, p);
+  } catch (er) { fail(er); }
+  return true;
 }
 
 /* ---------------- Offres et tarifs ---------------- */
@@ -238,6 +292,7 @@ export async function offersPage(c) {
       <tr><td>Nom</td>${plans.map(p => `<td><input class="input boxed" data-p="${p.code}" data-k="name" value="${esc(p.name)}"></td>`).join('')}</tr>
       <tr><td>Prix annuel (FCFA)</td>${plans.map(p => `<td>${numIn(`data-p="${p.code}" data-k="price" step="1000"`, p.price, p.code === 'gratuit' ? 'disabled' : '')}</td>`).join('')}</tr>
       <tr><td>Cible</td>${plans.map(p => `<td><input class="input boxed" data-p="${p.code}" data-k="target" value="${esc(p.target || '')}"></td>`).join('')}</tr>
+      <tr><td>Lien de paiement<div class="faint" style="font-size:11.5px">Wave, Orange Money, CinetPay… (https://)</div></td>${plans.map(p => `<td>${p.code === 'gratuit' ? '—' : `<input class="input boxed" type="url" data-p="${p.code}" data-k="paymentLink" placeholder="https://" value="${esc(p.paymentLink || '')}">`}</td>`).join('')}</tr>
       <tr><td>Proposée à la souscription</td>${plans.map(p => `<td>${p.code === 'gratuit' ? '—' : `<input type="checkbox" data-p="${p.code}" data-k="purchasable" ${p.purchasable ? 'checked' : ''}>`}</td>`).join('')}</tr>
       <tr><td>Ordre (gamme)</td>${plans.map(p => `<td>${numIn(`data-p="${p.code}" data-k="order"`, p.order)}</td>`).join('')}</tr>
       <tr class="sep"><td colspan="${plans.length + 1}">Quotas</td></tr>
@@ -246,9 +301,9 @@ export async function offersPage(c) {
       ${Object.entries(o.rights).map(([k, l]) => `<tr><td>${esc(l)}</td>${plans.map(p => `<td><input type="checkbox" data-p="${p.code}" data-r="${k}" ${p.rights[k] ? 'checked' : ''}></td>`).join('')}</tr>`).join('')}
     </tbody></table></div></section>
 
-    <section class="panel"><h2>Types de campagnes publicitaires</h2><div class="tbl-wrap"><table class="tbl matrix"><thead><tr><th>Type</th><th>Prix (FCFA)</th><th>Durée min (j)</th><th>Durée max (j)</th><th>Emplacements</th><th>Nationale</th><th>Proposé</th><th>Prix provisoire</th></tr></thead><tbody>
+    <section class="panel"><h2>Types de campagnes publicitaires</h2><div class="tbl-wrap"><table class="tbl matrix"><thead><tr><th>Type</th><th>Prix (FCFA)</th><th>Lien de paiement</th><th>Durée min (j)</th><th>Durée max (j)</th><th>Emplacements</th><th>Nationale</th><th>Proposé</th><th>Prix provisoire</th></tr></thead><tbody>
       ${types.map(t => `<tr><td><input class="input boxed" data-t="${t.code}" data-k="name" value="${esc(t.name)}"><input class="input boxed" data-t="${t.code}" data-k="usage" value="${esc(t.usage || '')}" style="margin-top:4px;font-size:12.5px"></td>
-        <td>${numIn(`data-t="${t.code}" data-k="price" step="1000"`, t.price)}</td><td>${numIn(`data-t="${t.code}" data-k="minDays"`, t.minDays)}</td><td>${numIn(`data-t="${t.code}" data-k="maxDays"`, t.maxDays)}</td>
+        <td>${numIn(`data-t="${t.code}" data-k="price" step="1000"`, t.price)}</td><td><input class="input boxed" type="url" data-t="${t.code}" data-k="paymentLink" placeholder="https://" value="${esc(t.paymentLink || '')}"></td><td>${numIn(`data-t="${t.code}" data-k="minDays"`, t.minDays)}</td><td>${numIn(`data-t="${t.code}" data-k="maxDays"`, t.maxDays)}</td>
         <td>${Object.entries(o.placements).map(([k, l]) => `<label class="chk"><input type="checkbox" data-t="${t.code}" data-pl="${k}" ${t.placements.includes(k) ? 'checked' : ''}> ${esc(l)}</label>`).join('')}</td>
         <td><input type="checkbox" data-t="${t.code}" data-k="national" ${t.national ? 'checked' : ''}></td><td><input type="checkbox" data-t="${t.code}" data-k="active" ${t.active ? 'checked' : ''}></td>
         <td><input type="checkbox" data-t="${t.code}" data-k="provisional" ${t.provisional ? 'checked' : ''}>${t.provisional ? ' <span class="tag warn">provisoire</span>' : ''}</td></tr>`).join('')}
