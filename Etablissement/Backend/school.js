@@ -12,7 +12,14 @@ const mail = backendRequire('./src/mail');
 const { httpError, bcrypt, SECRET, jwt } = backendRequire('./src/auth');
 const { upload, cleanMedia } = backendRequire('./src/api');
 const { storeMedia } = backendRequire('./src/db');
+const OF = backendRequire('./src/offers');
+const B = backendRequire('./src/billing');
+const AU = backendRequire('./src/audience');
+const CP = backendRequire('./src/campaigns');
+const RP = backendRequire('./src/reports');
+const catalog = backendRequire('./src/catalog');
 const { data, save } = C;
+const DAY = 86400e3;
 
 const router = express.Router();
 const normEmail = (e) => String(e || '').trim().toLowerCase();
@@ -24,7 +31,47 @@ function selfView(s) {
   return {
     ...O.channelView(s), status: s.status, requestedAt: s.requestedAt, activatedAt: s.activatedAt || null,
     manager: s.manager, email: s.email, mustChangePassword: false,
+    // L'établissement voit toujours ses propres contenus, même masqués aux élèves par sa formule.
+    formations: s.formations || [], gallery: s.gallery || [], admissions: s.admissions || null,
+    offer: { ...OF.offerState(s), banner: B.banner(s) },
   };
+}
+
+// Contenus de la page officielle. Retirer est toujours permis ; ajouter ou modifier demande la formule.
+const sameOrSubset = (next, prev, key) => next.every(x => prev.some(y => JSON.stringify(key(y)) === JSON.stringify(key(x))));
+function officialFields(b, s) {
+  const out = {};
+  if (b.formations !== undefined) {
+    if (!Array.isArray(b.formations)) throw httpError(400, 'Liste de formations invalide.');
+    const list = b.formations.slice(0, 60).map(f => {
+      const title = clip(f.title, 120);
+      if (title.length < 2) throw httpError(400, 'Donnez un intitulé à chaque formation.');
+      return {
+        id: typeof f.id === 'string' && /^[a-z0-9_]{4,40}$/i.test(f.id) ? f.id : C.uid('f_'), title,
+        cycle: catalog.cycles.some(c => c.id === f.cycle) ? f.cycle : '', filiere: clip(f.filiere, 80),
+        entryLevel: clip(f.entryLevel, 60), duration: clip(f.duration, 40), fees: clip(f.fees, 80),
+      };
+    });
+    if (!OF.can(s, 'fullPage') && !sameOrSubset(list, s.formations || [], x => [x.id, x.title, x.cycle, x.filiere, x.entryLevel, x.duration, x.fees])) OF.requireRight(s, 'fullPage');
+    out.formations = list;
+  }
+  if (b.gallery !== undefined) {
+    if (!Array.isArray(b.gallery) || b.gallery.some(u => !isMedia(u))) throw httpError(400, 'Photos invalides.');
+    const list = [...new Set(b.gallery)].slice(0, 20);
+    if (!OF.can(s, 'fullPage') && !list.every(u => (s.gallery || []).includes(u))) OF.requireRight(s, 'fullPage');
+    out.gallery = list;
+  }
+  if (b.admissions !== undefined) {
+    if (b.admissions === null) out.admissions = null;
+    else {
+      OF.requireRight(s, 'admissions');
+      const a = b.admissions;
+      const day = (v) => (v === null || v === undefined || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+      out.admissions = { open: !!a.open, start: day(a.start), end: day(a.end), deadline: day(a.deadline), fees: clip(a.fees, 200), conditions: clip(a.conditions, 2000), documents: clip(a.documents, 2000), updatedAt: C.now() };
+      if (out.admissions.start && out.admissions.end && out.admissions.end < out.admissions.start) throw httpError(400, 'La clôture des inscriptions précède leur ouverture.');
+    }
+  }
+  return out;
 }
 
 // Informations publiques et de contact de la chaîne (demande et modification).
@@ -144,6 +191,7 @@ router.get('/me', (req, res) => res.json(selfView(req.school)));
 router.patch('/me', (req, res) => {
   const f = profileFields(req.body);
   delete f.type; // le type d'établissement est fixé à la validation
+  Object.assign(f, officialFields(req.body, req.school));
   Object.assign(req.school, f);
   save();
   res.json(selfView(req.school));
@@ -173,11 +221,12 @@ router.get('/posts', (req, res) => {
 
 router.post('/posts', (req, res) => {
   const b = req.body;
+  OF.checkPostQuota(req.school);
   const text = clip(b.text, 6000);
   const media = b.media ? cleanMedia(b.media) : null;
   if (!text && !media) throw httpError(400, 'La publication est vide.');
   const type = !media ? 'text' : /^image\//.test(media.mime) ? 'image' : /^video\//.test(media.mime) ? 'video' : 'document';
-  const p = { id: C.uid('p_'), schoolId: req.school.id, type, text, media, createdAt: C.now(), reactions: {}, viewerIds: [] };
+  const p = { id: C.uid('p_'), schoolId: req.school.id, type, text, media, createdAt: C.now(), reactions: {}, viewerIds: [], admission: !!b.admission };
   O.postsOf(req.school.id).push(p);
   save();
   O.notifyPost(req.school, p);
@@ -190,9 +239,34 @@ router.patch('/posts/:id', (req, res) => {
   const text = clip(req.body.text, 6000);
   if (!text && !p.media) throw httpError(400, 'La publication est vide.');
   p.text = text;
+  if (typeof req.body.admission === 'boolean') p.admission = req.body.admission;
   p.editedAt = C.now();
   save();
   for (const uid of req.school.followerIds || []) if (C.isOnline(uid)) C.toUser(uid, 'orientation:update', O.postView(p, uid));
+  res.json(O.postView(p));
+});
+
+// Mise en avant (formule Standard et plus) : en tête de la chaîne et dans « À la une » pendant
+// featuredDays jours, dans la limite du quota mensuel. Un retrait anticipé ne rend pas le crédit.
+router.post('/posts/:id/feature', (req, res) => {
+  const s = req.school;
+  OF.requireRight(s, 'featuredPosts');
+  const p = O.postsOf(s.id).find(x => x.id === req.params.id);
+  if (!p) throw httpError(404, 'Publication introuvable.');
+  if (p.featuredUntil > C.now()) throw httpError(400, 'Cette publication est déjà mise en avant.');
+  const max = OF.quota(s, 'featuredPerMonth');
+  if (max !== null && OF.featuredThisMonth(s) >= max) throw httpError(403, `Vous avez utilisé vos ${max} mises en avant de ce mois-ci.`);
+  p.featuredUntil = C.now() + (OF.offers().featuredDays || 7) * DAY;
+  (s.featureLog ||= []).push({ at: C.now(), postId: p.id });
+  s.featureLog = s.featureLog.filter(x => x.at > C.now() - 400 * DAY);
+  save();
+  res.json(O.postView(p));
+});
+router.delete('/posts/:id/feature', (req, res) => {
+  const p = O.postsOf(req.school.id).find(x => x.id === req.params.id);
+  if (!p) throw httpError(404, 'Publication introuvable.');
+  p.featuredUntil = null;
+  save();
   res.json(O.postView(p));
 });
 
@@ -207,8 +281,12 @@ router.delete('/posts/:id', (req, res) => {
 });
 
 /* Statistiques */
+// Ce que l'établissement voit dépend de sa formule (décidé ici, côté serveur). Uniquement des
+// agrégats ; toute catégorie de moins de `privacyThreshold` élèves est masquée.
 router.get('/stats', (req, res) => {
   const s = req.school;
+  const r = OF.currentPlan(s).plan.rights || {};
+  const th = OF.offers().privacyThreshold || 10;
   const posts = O.postsOf(s.id);
   const byCycle = {};
   for (const uid of s.followerIds || []) {
@@ -216,15 +294,130 @@ router.get('/stats', (req, res) => {
     const k = cls?.cycleLabel || 'Autre';
     byCycle[k] = (byCycle[k] || 0) + 1;
   }
+  const rows = Object.entries(byCycle).sort((a, b) => b[1] - a[1]);
+  const small = rows.filter(([, n]) => n < th);
+  const cycles = rows.filter(([, n]) => n >= th);
+  if (small.length) { const sum = small.reduce((a, [, n]) => a + n, 0); cycles.push([`Autres niveaux (moins de ${th} chacun)`, sum >= th ? sum : null]); }
   const inquiries = Object.values(data.inquiries).filter(q => q.schoolId === s.id && O.visibleMessages(q, 'school').length);
-  res.json({
+  const out = {
     followers: (s.followerIds || []).length, posts: posts.length,
     views: posts.reduce((n, p) => n + (p.viewerIds || []).length, 0),
     reactions: posts.reduce((n, p) => n + Object.keys(p.reactions || {}).length, 0),
     inquiries: inquiries.length, unread: inquiries.reduce((n, q) => n + O.inquiryView(q, 'school').unread, 0),
-    byCycle: Object.entries(byCycle).sort((a, b) => b[1] - a[1]),
+    byCycle: cycles, threshold: th, rights: r,
+  };
+  if (!r.statsBasic) return res.json(out);
+  const days = Math.min(90, Math.max(7, Number(req.query.days) || 30));
+  const metrics = r.statsVisibility ? ['i', 'v', 'u', 'c', 'f', 'k', 'q'] : ['v', 'f', 'k', 'q'];
+  const pick = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => k === 'd' || k === 'm' || metrics.includes(k)));
+  const to = Date.parse(AU.dayKey()) + DAY, from = to - days * DAY;
+  const series = AU.daily(s.id, from, to).map(pick);
+  Object.assign(out, { metrics, period: { days, from, to }, series, totals: pick(AU.total(series)) });
+  if (r.statsAdvanced) {
+    const prev = AU.daily(s.id, from - days * DAY, from).map(pick);
+    out.previous = { series: prev, totals: pick(AU.total(prev)) };
+    out.funnel = [{ label: 'ont vu votre établissement', n: out.totals.i }, { label: 'ont visité votre chaîne', n: out.totals.u }, { label: 'vous ont contacté', n: out.totals.k }];
+  }
+  if (r.statsVisibility) {
+    out.months = AU.monthly(s.id, 12).map(pick);
+    const ps = data.stats[s.id]?.posts || {};
+    out.postStats = [...posts].reverse().slice(0, 30).map(p => ({
+      id: p.id, text: O.postSnippet(p), createdAt: p.createdAt, reach: (p.viewerIds || []).length, reactions: Object.keys(p.reactions || {}).length,
+      une: ps[p.id]?.i || 0, clicks: ps[p.id]?.c || 0, replies: ps[p.id]?.r || 0, featured: p.featuredUntil > C.now(), admission: !!p.admission,
+    }));
+    out.weeks = [];
+    for (let w = 7; w >= 0; w--) {
+      const a = to - (w + 1) * 7 * DAY;
+      out.weeks.push({ from: AU.dayKey(a), ...pick(AU.total(AU.daily(s.id, a, a + 7 * DAY))) });
+    }
+  }
+  if (r.statsBreakdown) out.breakdown = { visit: AU.breakdown(s.id, from, to, 'visit', th), contact: AU.breakdown(s.id, from, to, 'contact', th) };
+  res.json(out);
+});
+
+/* ---------------- Ma formule ---------------- */
+
+router.get('/offer', (req, res) => {
+  const s = req.school;
+  const o = OF.offers();
+  const founderOk = B.founderEligibility(s).eligible;
+  const plans = Object.values(o.plans).filter(p => p.purchasable && (p.code !== 'fondateur' || founderOk)).sort((a, b) => a.order - b.order).map(p => OF.planSummary(p.code));
+  const cur = OF.currentPlan(s);
+  if (!plans.some(p => p.code === cur.code) && cur.code !== 'gratuit') plans.unshift(OF.planSummary(cur.code));
+  res.json({
+    offer: { ...OF.offerState(s), banner: B.banner(s) }, plans, rights: OF.RIGHTS,
+    requests: Object.values(data.planRequests).filter(r => r.schoolId === s.id).sort((a, b) => b.at - a.at).map(r => ({ ...r, planName: OF.planDef(r.plan).name })),
+    paymentInstructions: o.paymentInstructions,
+    marketingContact: OF.can(s, 'marketingSupport') ? o.marketingContact : null,
+    founder: { seatsLeft: Math.max(0, o.founder.seats - OF.founderSeatsTaken()), guaranteedYears: o.founder.guaranteedYears },
   });
 });
+
+// Demande de formule (souscription, renouvellement ou montée en gamme) : arrive dans l'administration.
+router.post('/offer/request', (req, res) => {
+  const s = req.school;
+  const p = OF.offers().plans[req.body.plan];
+  if (!p || !p.purchasable || p.code === 'gratuit') throw httpError(400, 'Formule indisponible.');
+  if (p.code === 'fondateur') { const f = B.founderEligibility(s); if (!f.eligible) throw httpError(400, f.reason); }
+  if (Object.values(data.planRequests).some(r => r.schoolId === s.id && r.status === 'pending')) throw httpError(400, 'Une demande est déjà en cours : l\'équipe Scola vous recontacte.');
+  const r = { id: C.uid('rq_'), schoolId: s.id, plan: p.code, message: clip(req.body.message, 1000), at: C.now(), status: 'pending' };
+  data.planRequests[r.id] = r;
+  save();
+  const admins = Object.values(data.admins).map(a => a.email).filter(Boolean);
+  if (admins.length) mail.send({ to: admins.join(','), subject: `Scola — demande de formule : ${s.name} (${p.name})`, text: `« ${s.name} » demande la formule ${p.name} (${p.price.toLocaleString('fr-FR')} FCFA / an).${r.message ? `\n\nMessage : ${r.message}` : ''}\n\nEnregistrez le paiement dans l'administration, rubrique Abonnements.` });
+  res.json({ request: { ...r, planName: p.name }, paymentInstructions: OF.offers().paymentInstructions });
+});
+
+/* ---------------- Campagnes publicitaires ---------------- */
+
+function myCampaign(req) {
+  const c = data.campaigns[req.params.id];
+  if (!c || c.schoolId !== req.school.id) throw httpError(404, 'Campagne introuvable.');
+  return c;
+}
+
+router.get('/campaigns', (req, res) => {
+  const s = req.school;
+  CP.refreshStatuses();
+  const o = OF.offers();
+  res.json({
+    campaigns: Object.values(data.campaigns).filter(c => c.schoolId === s.id).sort((a, b) => b.createdAt - a.createdAt).map(c => CP.view(c)),
+    credits: CP.credits(s), allowed: CP.allowed(s), ctas: CP.CTA, placements: OF.PLACEMENTS,
+    types: Object.values(o.campaignTypes).filter(t => t.active),
+    catalog: { countries: catalog.countries, cycles: catalog.cycles.map(c => ({ id: c.id, label: c.label, niveaux: c.niveaux })), cities: catalog.cities, domains: catalog.domains },
+    country: catalog.countries.includes(s.country) ? s.country : "Côte d'Ivoire",
+    frequencyCap: o.frequencyCap, threshold: o.privacyThreshold || 10, paymentInstructions: o.paymentInstructions,
+  });
+});
+
+// Estimation de l'audience : nombre d'élèves correspondants, arrondi (jamais de liste).
+router.post('/campaigns/estimate', (req, res) => {
+  const f = CP.sanitize({ ...req.body, title: 'estimation', media: null, cta: { kind: 'channel' }, start: null }, req.school);
+  res.json({ ...CP.estimate(f.targeting), describe: CP.describe(f.targeting), personal: CP.isPersonal(f.targeting) });
+});
+
+router.post('/campaigns', (req, res) => res.json(CP.view(CP.create(req.school, req.body))));
+router.patch('/campaigns/:id', (req, res) => res.json(CP.view(CP.update(myCampaign(req), req.school, req.body))));
+router.delete('/campaigns/:id', (req, res) => {
+  const c = myCampaign(req);
+  if (!['draft', 'rejected'].includes(c.status)) throw httpError(400, 'Seul un brouillon ou une campagne refusée peut être supprimé.');
+  delete data.campaigns[c.id];
+  save();
+  res.json({ ok: true });
+});
+router.post('/campaigns/:id/submit', (req, res) => {
+  const credit = req.body.credit === 'national' ? 'national' : req.body.credit === 'campaign' ? 'campaign' : undefined;
+  res.json(CP.view(CP.submit(myCampaign(req), req.school, { credit })));
+});
+
+/* ---------------- Rapports (imprimables) ---------------- */
+
+router.get('/reports', (req, res) => {
+  const s = req.school;
+  res.json({ annual: OF.can(s, 'statsBasic'), monthly: OF.can(s, 'monthlyReport'), months: RP.availableMonths(s) });
+});
+router.get('/reports/monthly', (req, res) => res.json(RP.monthly(req.school, req.query.m)));
+router.get('/reports/annual', (req, res) => res.json(RP.annual(req.school)));
 
 /* Messages des élèves (l'établissement ne peut que répondre, jamais écrire le premier). */
 function myInquiry(req) {

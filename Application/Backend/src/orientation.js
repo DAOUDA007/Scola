@@ -9,6 +9,10 @@ const push = require('./push');
 const mail = require('./mail');
 const { requireAuth, httpError } = require('./auth');
 const { cleanMedia } = require('./api');
+const OF = require('./offers');
+const AU = require('./audience');
+const CP = require('./campaigns');
+const catalog = require('./catalog');
 const { data, save } = C;
 
 const SCHOOL_TYPES = {
@@ -44,12 +48,18 @@ function findPost(id) {
 
 function channelView(s, viewerId) {
   const f = viewerId ? followsOf(viewerId)[s.id] : null;
+  const r = OF.currentPlan(s).plan.rights || {};
+  const a = r.admissions && s.admissions ? { ...s.admissions, highlight: !!r.admissionsHighlight } : null;
   return {
     id: s.id, name: s.name, type: s.type, typeLabel: SCHOOL_TYPES[s.type] || SCHOOL_TYPES.autre,
     country: s.country, city: s.city, address: s.address, website: s.website, email: s.email, phone: s.phone,
-    description: s.description, programs: s.programs, logo: s.logo, verified: !!s.verified,
+    description: s.description, programs: s.programs, logo: s.logo,
+    // Badge « vérifié » : accordé par l'administration ET inclus dans la formule ; « Fondateur » : permanent.
+    verified: OF.showsVerified(s), founder: OF.isFounder(s),
     createdAt: s.activatedAt || s.requestedAt, followers: (s.followerIds || []).length,
     posts: postsOf(s.id).length, following: !!f, muted: f ? !!f.muted : false,
+    // Page officielle (vitrine payée par l'établissement, visible même sans suivre la chaîne).
+    infoButton: !!r.infoButton, formations: r.fullPage ? s.formations || [] : [], gallery: r.fullPage ? s.gallery || [] : [], admissions: a,
   };
 }
 
@@ -64,6 +74,7 @@ function postView(p, viewerId) {
   return {
     id: p.id, schoolId: p.schoolId, type: p.type, text: p.text || '', media: p.media || null, linkPreview: p.linkPreview || null,
     createdAt: p.createdAt, editedAt: p.editedAt || null, reactions: counts,
+    featuredUntil: p.featuredUntil && p.featuredUntil > C.now() ? p.featuredUntil : null, admission: !!p.admission,
     myReaction: viewerId ? (p.reactions || {})[viewerId] || null : null,
     views: (p.viewerIds || []).length,
   };
@@ -155,6 +166,7 @@ function addInquiryMessage(q, from, b) {
   const media = b.media ? cleanMedia(b.media) : null;
   if (!text && !media) throw httpError(400, 'Message vide.');
   const m = { id: C.uid('qm_'), from, text, media, createdAt: C.now() };
+  if (b.info) m.info = { formation: String(b.info.formation || '').slice(0, 120), source: b.info.source === 'ad' ? 'ad' : 'channel' };
   if (b.postId) {
     const { p } = findPost(b.postId);
     if (p && p.schoolId === q.schoolId) m.postRef = { id: p.id, text: postSnippet(p), thumb: p.type === 'image' ? p.media?.url : null };
@@ -165,6 +177,10 @@ function addInquiryMessage(q, from, b) {
   if (from === 'student') q.readByStudentAt = m.createdAt; else q.readBySchoolAt = m.createdAt;
   save();
   if (from === 'school') notifyReply(q, m);
+  if (from === 'student') {
+    AU.contact(q.schoolId, q.studentId, { info: !!m.info });
+    if (m.postRef) AU.postReply(q.schoolId, m.postRef.id);
+  }
   return m;
 }
 
@@ -223,29 +239,139 @@ function requireFollow(s, uid) {
 const router = express.Router();
 router.use(requireAuth);
 
+// Classement des établissements dans la recherche et les suggestions : d'abord les campagnes
+// « priorité dans la recherche » (marquées Sponsorisé), puis la priorité de la formule, puis
+// le nombre d'abonnés. Une ville renseignée fait remonter les établissements proches.
+function ranked(list, uid, { sponsoredSlots = 2, used = new Set() } = {}) {
+  const u = data.users[uid];
+  const near = (s) => (u?.city && fold(s.city) === fold(u.city) ? 1 : 0);
+  const sorted = [...list].sort((a, b) => (OF.quota(b, 'rank') || 0) - (OF.quota(a, 'rank') || 0) || near(b) - near(a) || (b.followerIds || []).length - (a.followerIds || []).length);
+  const ids = new Set(list.map(s => s.id));
+  const promo = CP.pick(uid, 'search', sponsoredSlots, used).filter(x => ids.has(x.c.schoolId));
+  for (const x of promo) CP.record(x.c, uid);
+  const top = promo.map(x => ({ s: data.schools[x.c.schoolId], ad: x.c }));
+  const rest = sorted.filter(s => !top.some(t => t.s.id === s.id)).map(s => ({ s }));
+  return [...top, ...rest];
+}
+function listView(item, uid) {
+  AU.seen(item.s.id, uid);
+  const v = channelView(item.s, uid);
+  if (item.ad) { v.sponsored = { adId: item.ad.id, why: CP.why(item.ad) }; }
+  return v;
+}
+
+// « À la une » : publications mises en avant (formule Standard et plus, 7 jours), publications
+// récentes des établissements « mise en avant dans le fil » (Pro et plus), annonces d'inscription
+// mises en valeur, et au plus une publication sponsorisée toutes les 5 publications.
+function aLaUne(uid, used) {
+  const t = C.now();
+  const items = [];
+  for (const s of Object.values(data.schools)) {
+    if (!active(s)) continue;
+    const r = OF.currentPlan(s).plan.rights || {};
+    for (const p of postsOf(s.id)) {
+      const featured = r.featuredPosts && p.featuredUntil > t;
+      const hl = r.feedHighlight && t - p.createdAt < 7 * 86400e3;
+      const adm = r.admissionsHighlight && p.admission && t - p.createdAt < 30 * 86400e3;
+      if (featured || hl || adm) items.push({ s, p, w: (featured ? 3 : 0) + (adm ? 2 : 0) + (hl ? 1 : 0) });
+    }
+  }
+  items.sort((a, b) => b.w - a.w || b.p.createdAt - a.p.createdAt);
+  // Une publication au plus par établissement, 12 au total.
+  const one = new Set();
+  const posts = items.filter(x => !one.has(x.s.id) && one.add(x.s.id)).slice(0, 12).map(({ s, p }) => {
+    AU.seen(s.id, uid);
+    AU.postSeen(s.id, p.id, uid);
+    return { kind: 'post', post: { ...postView(p, uid), preview: postSnippet(p) }, channel: { id: s.id, name: s.name, logo: s.logo, verified: OF.showsVerified(s), founder: OF.isFounder(s) } };
+  });
+  const nAds = posts.length ? Math.ceil(posts.length / 5) : 1;
+  const ads = CP.pick(uid, 'sponsored', nAds, used);
+  const out = [];
+  let k = 0;
+  posts.forEach((x, i) => { out.push(x); if ((i + 1) % 5 === 2 && ads[k]) { out.push(adItem(ads[k++], uid, 'sponsored')); } });
+  while (k < ads.length && out.length < 2 + posts.length) out.push(adItem(ads[k++], uid, 'sponsored'));
+  return out;
+}
+function adItem(x, uid, placement) {
+  CP.record(x.c, uid);
+  return { kind: 'ad', ad: CP.adView(x.c, { big: x.big, placement }) };
+}
+
 router.get('/', (req, res) => {
   const uid = req.user.id;
+  CP.refreshStatuses();
+  const used = new Set();
+  // Bannière : une seule à la fois (rotation, grand format Premium en priorité).
+  const b = CP.pick(uid, 'banner', 1, used)[0];
+  const banner = b ? adItem(b, uid, 'banner').ad : null;
   const mine = Object.keys(followsOf(uid)).map(id => data.schools[id]).filter(active);
   const following = mine.map(s => summary(s, uid)).sort((a, b) => (b.last?.createdAt || 0) - (a.last?.createdAt || 0));
-  const suggestions = Object.values(data.schools).filter(s => active(s) && !followsOf(uid)[s.id])
-    .sort((a, b) => (b.followerIds || []).length - (a.followerIds || []).length).slice(0, 20).map(s => channelView(s, uid));
+  const others = Object.values(data.schools).filter(s => active(s) && !followsOf(uid)[s.id]);
+  const suggestions = ranked(others, uid, { sponsoredSlots: 1, used }).slice(0, 20).map(x => listView(x, uid));
+  const une = aLaUne(uid, used);
   const inquiries = Object.values(data.inquiries).filter(q => q.studentId === uid && active(data.schools[q.schoolId]) && visibleMessages(q, 'student').length)
     .sort((a, b) => b.updatedAt - a.updatedAt).map(q => inquiryView(q, 'student'));
-  res.json({ following, suggestions, inquiries, types: SCHOOL_TYPES });
+  res.json({ following, suggestions, inquiries, types: SCHOOL_TYPES, banner, une });
 });
 
+// Annuaire : recherche par nom, ville, type, formation ou domaine de formation.
 router.get('/channels', (req, res) => {
   const q = fold(req.query.q);
   let list = Object.values(data.schools).filter(active);
-  if (q) list = list.filter(s => fold(`${s.name} ${s.city} ${s.country} ${s.programs} ${SCHOOL_TYPES[s.type]}`).includes(q));
+  const { domains, domainOf } = catalog;
+  const hay = (s) => {
+    const forms = OF.can(s, 'directory') ? (s.formations || []).map(f => `${f.title} ${f.filiere} ${domains[domainOf(f.filiere)] || ''}`).join(' ') : '';
+    return fold(`${s.name} ${s.city} ${s.country} ${s.programs} ${SCHOOL_TYPES[s.type]} ${forms}`);
+  };
+  if (q) list = list.filter(s => hay(s).includes(q));
   if (req.query.type) list = list.filter(s => s.type === req.query.type);
-  res.json(list.sort((a, b) => (b.followerIds || []).length - (a.followerIds || []).length).slice(0, 100).map(s => channelView(s, req.user.id)));
+  if (req.query.domain && domains[req.query.domain]) {
+    list = list.filter(s => OF.can(s, 'directory') && (s.formations || []).some(f => domainOf(f.filiere) === req.query.domain));
+  }
+  res.json(ranked(list, req.user.id, { sponsoredSlots: q || req.query.type || req.query.domain ? 1 : 2 }).slice(0, 100).map(x => listView(x, req.user.id)));
 });
 
 router.get('/channels/:id', (req, res) => {
   const s = getSchool(req.params.id);
   const list = postsOf(s.id);
+  // Visite de la chaîne (compteur agrégé) ; « from » : clic depuis une liste, la recherche ou À la une.
+  AU.visit(s.id, req.user.id, ['suggestion', 'search', 'une', 'ad'].includes(req.query.from) ? req.query.from : null);
+  if (req.query.post && req.query.from === 'une') AU.postClick(s.id, req.query.post, req.user.id);
   res.json({ ...channelView(s, req.user.id), media: list.filter(p => ['image', 'video', 'document'].includes(p.type) || /https?:\/\//.test(p.text || '')).length, hasInquiry: !!findInquiry(s.id, req.user.id) });
+});
+
+/* ---------------- Publicités (onglet Orientation uniquement) ---------------- */
+
+function liveAd(id) {
+  const c = data.campaigns[id];
+  if (!c) throw httpError(404, 'Publicité introuvable.');
+  return c;
+}
+router.post('/ads/:id/click', (req, res) => {
+  const c = liveAd(req.params.id);
+  AU.adClick(c.schoolId, c.id, req.user.id);
+  res.json({ ok: true });
+});
+router.post('/ads/:id/hide', (req, res) => {
+  const c = liveAd(req.params.id);
+  const u = req.user;
+  u.hiddenAds = [...new Set([...(u.hiddenAds || []), c.id])].slice(-200);
+  AU.adHide(c.schoolId, c.id);
+  save();
+  res.json({ ok: true });
+});
+router.post('/ads/:id/report', (req, res) => {
+  const c = liveAd(req.params.id);
+  const u = req.user;
+  u.hiddenAds = [...new Set([...(u.hiddenAds || []), c.id])].slice(-200);
+  data.reports.push({
+    id: C.uid('r_'), kind: 'ad', schoolId: c.schoolId, campaignId: c.id, classId: null, by: u.id, at: C.now(),
+    reason: String(req.body.reason || '').slice(0, 500), userId: null,
+    message: { id: c.id, kind: 'ad', text: `${c.title}${c.text ? ' — ' + c.text : ''}`.slice(0, 300), media: c.media?.url || null, at: c.createdAt }, resolved: false,
+  });
+  AU.adHide(c.schoolId, c.id);
+  save();
+  res.json({ ok: true });
 });
 
 router.get('/channels/:id/posts', (req, res) => {
@@ -266,6 +392,7 @@ router.post('/channels/:id/follow', (req, res) => {
   if (!f[s.id]) {
     f[s.id] = { at: C.now(), muted: false, lastReadAt: C.now() };
     (s.followerIds ||= []).push(req.user.id);
+    AU.follow(s.id, true);
     save();
   }
   res.json(summary(s, req.user.id));
@@ -273,6 +400,7 @@ router.post('/channels/:id/follow', (req, res) => {
 
 router.delete('/channels/:id/follow', (req, res) => {
   const s = getSchool(req.params.id, { mustBeActive: false });
+  if (followsOf(req.user.id)[s.id]) AU.follow(s.id, false);
   delete followsOf(req.user.id)[s.id];
   s.followerIds = (s.followerIds || []).filter(x => x !== req.user.id);
   save();
@@ -360,6 +488,27 @@ router.post('/inquiries/with/:schoolId/messages', (req, res) => {
     data.inquiries[q.id] = q;
   }
   const m = addInquiryMessage(q, 'student', req.body);
+  res.json({ inquiry: inquiryView(q, 'student'), message: m });
+});
+
+// « Demander des informations » : formulaire court (formation, question facultative) qui crée une
+// demande marquée dans la messagerie de l'établissement. Possible sans suivre la chaîne : c'est
+// l'élève lui-même qui choisit de contacter l'établissement (depuis sa page ou une publicité).
+router.post('/inquiries/with/:schoolId/info-request', (req, res) => {
+  const s = getSchool(req.params.schoolId);
+  if (!OF.can(s, 'infoButton')) throw httpError(403, 'Cet établissement ne reçoit pas de demandes d\'informations pour le moment : suivez sa chaîne pour lui écrire.');
+  const b = req.body;
+  const f = b.formationId ? (s.formations || []).find(x => x.id === b.formationId) : null;
+  const formation = String(f?.title || b.formation || '').trim().slice(0, 120);
+  const question = String(b.question || '').trim().slice(0, 2000);
+  const text = `📋 Demande d'informations${formation ? ` — ${formation}` : ''}${question ? `\n${question}` : ''}`;
+  let q = findInquiry(s.id, req.user.id);
+  if (!q) {
+    q = { id: C.uid('q_'), schoolId: s.id, studentId: req.user.id, createdAt: C.now(), updatedAt: C.now(), messages: [], readBySchoolAt: 0, readByStudentAt: C.now() };
+    data.inquiries[q.id] = q;
+  }
+  const m = addInquiryMessage(q, 'student', { text, info: { formation, source: b.source } });
+  if (b.adId && data.campaigns[b.adId]?.schoolId === s.id) AU.adContact(s.id, b.adId);
   res.json({ inquiry: inquiryView(q, 'student'), message: m });
 });
 

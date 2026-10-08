@@ -47,7 +47,8 @@ mot de passe provisoire est affiché ; le compte est créé s'il n'existe pas).
 Ce que fait l'administration :
 
 - **Tableau de bord** — utilisateurs, classes, messages, établissements (et demandes à valider), signalements,
-  inscriptions sur 14 jours.
+  inscriptions sur 14 jours ; **activité commerciale** : encaissé du mois et de l'année, répartition par
+  formule, renouvellements à venir (60 jours), taux de renouvellement, campagnes actives, places Fondateur.
 - **Utilisateurs** — recherche, fiche détaillée, modifier le profil, **changer de classe** (élève inscrit
   par erreur), suspendre / réactiver, réinitialiser le code PIN, déconnecter tous les appareils, supprimer.
 - **Classes** — nom, description, icône, **lecture seule** (seule l'administration publie), autoriser ou non
@@ -58,6 +59,16 @@ Ce que fait l'administration :
 - **Établissements** — demandes de création de chaîne (avec le temps restant sur les 72 h), fiche complète,
   **« Valider et envoyer le code d'activation »**, refus motivé, badge « certifié », suspension,
   suppression, modération des publications.
+- **Abonnements** — liste filtrable (formule, statut, échéance proche), fiche par établissement avec
+  historique, **enregistrement d'un paiement** (formule, montant, moyen, référence, date de début ; prorata
+  suggéré en cas de montée en gamme), **reçu imprimable** numéroté, prolongation, changement de formule,
+  annulation d'une saisie erronée, demandes de formule envoyées par les établissements.
+- **Campagnes** — file de validation, aperçu tel que l'élève le verra, paiement, validation, refus motivé,
+  suspension / reprise, résultats.
+- **Offres et tarifs** — toute la grille commerciale, sans toucher au code : prix, droits et quotas de chaque
+  formule, types de campagnes (prix, durées, emplacements, « prix provisoire »), offre Fondateur (places,
+  années garanties), période de grâce, rappels, plafond de répétition, instructions de paiement,
+  interlocuteur marketing, émetteur des reçus.
 - **Annonces** — publier une annonce officielle dans une, plusieurs ou toutes les classes (notifiée aux élèves).
 - **Administrateurs** — ajouter, modifier, supprimer d'autres administrateurs (on ne peut pas se supprimer
   soi-même ni supprimer le dernier).
@@ -178,9 +189,50 @@ répondre aux élèves qui l'ont contacté.
 3. ce code — et seulement ce code (usage unique, valable 7 jours, 5 essais) — permet d'achever la création
    du compte en choisissant un mot de passe.
 
-Une fois connecté : tableau de bord (abonnés, vues, réactions, abonnés par niveau), publications
-(créer, modifier, supprimer ; notification aux abonnés), messages des élèves, profil public de la chaîne,
-mot de passe.
+Une fois connecté : tableau de bord, publications (créer, modifier, supprimer ; notification aux abonnés ;
+annonces d'inscription ; mises en avant), messages des élèves (les « demandes d'informations » sont
+marquées), profil public et page officielle de la chaîne, **Ma formule**, **Campagnes**, **Rapports**, mot de passe.
+
+**Monétisation (établissements)** — abonnements **annuels** (12 mois, jamais mensuels) et campagnes
+ponctuelles ciblées, sans publicité ailleurs que dans l'onglet Orientation.
+
+| Formule | Prix par défaut | Ce qu'elle ajoute |
+|---|---|---|
+| Sans abonnement | gratuit | chaîne, présentation, réponse aux élèves, 4 publications par mois |
+| Partenaire Fondateur | 150 000 FCFA/an | droits Starter + badge « Fondateur » + tarif garanti 3 ans (100 premiers) |
+| Starter | 250 000 FCFA/an | page officielle (galerie, formations), bloc Inscriptions, « Demander des informations », annuaire, publications illimitées, statistiques de base |
+| Standard | 600 000 FCFA/an | meilleur classement, badge « vérifié » (accordé par l'admin), 2 mises en avant/mois, annonces d'inscription mises en valeur, statistiques de visibilité |
+| Pro | 1 200 000 FCFA/an | publicité ciblée (ville, niveau, domaine), bannière, mise en avant dans le fil, 1 campagne incluse/an, répartitions détaillées, rapport mensuel |
+| Premium | 2 400 000 FCFA/an | grande bannière prioritaire, priorité maximale, 2 campagnes nationales/an, vidéo sponsorisée, statistiques avancées, interlocuteur marketing |
+
+Tout (prix, droits, quotas) est modifiable dans *Administration › Offres et tarifs* et **vérifié côté
+serveur**. Les établissements existants passent automatiquement « sans abonnement » ; à l'échéance, rien
+n'est supprimé : les fonctions payantes sont désactivées après 15 jours de grâce. Rappels à J-60, J-30, J-7
+(e-mail si SMTP est configuré, bandeau dans l'espace). Le paiement est enregistré par l'administration
+(Wave, Orange Money, MTN MoMo, Moov Money, virement, chèque, espèces) ; un futur paiement en ligne se
+branchera à un seul endroit : `startOnlinePayment()` dans `Application/Backend/src/billing.js`.
+
+Campagnes (Rentrée, Inscriptions, Concours, Événement, Nationale ; prix **provisoires** à fixer dans
+l'admin) : `brouillon → en attente de paiement → en revue → programmée → active → terminée` (ou refusée,
+suspendue). Ciblage facultatif par pays, ville, cycle, niveau et **domaine de formation** ; estimation
+d'audience arrondie (« moins de 50 » en dessous). Emplacements : bannière, publication sponsorisée dans
+« À la une » (au plus 1 toutes les 5 publications), priorité dans la recherche et les suggestions.
+
+**Règles de confiance** : aucune publicité dans les classes, discussions, appels ni notifications ; mention
+« Sponsorisé » + « Pourquoi je vois ceci ? » ; ciblage fait par le serveur, l'établissement ne reçoit que des
+agrégats, les catégories de moins de 10 personnes sont masquées ; 3 affichages max par élève et par jour ;
+*Paramètres › Confidentialité › Publicités personnalisées* (désactivé : publicités non ciblées seulement) ;
+masquer / signaler une publicité ; validation par un administrateur avant diffusion.
+
+**Mesure d'audience** : aucun événement brut conservé ; des compteurs **par jour** (vues, visiteurs uniques,
+clics, abonnés, contacts, demandes d'informations), et par mois pour les répartitions ville / niveau /
+domaine. Les visiteurs uniques sont comptés avec une empreinte du jour (HMAC avec un sel aléatoire gardé
+**en mémoire seulement**, renouvelé chaque jour) : rien ne permet ensuite de relier un compteur à un élève.
+Rapport mensuel (Pro et plus) et bilan annuel (formules payantes), imprimables en PDF depuis le navigateur.
+
+**Ville facultative des élèves** : proposée une fois dans Orientation (« Plus tard » possible), modifiable
+dans le profil, jamais montrée à la classe ni aux établissements. Sans ville, l'élève ne reçoit que les
+campagnes sans ciblage de ville.
 
 **Appels** — vocaux et vidéo, individuels et **de groupe** (jusqu'à 8 personnes, rejoindre un appel en
 cours), couper le micro, caméra, retourner la caméra, **partage d'écran**, réduire l'appel, journal d'appels
@@ -212,27 +264,33 @@ Application/                 l'application des élèves
       auth.js                inscription, code SMS, PIN, connexion par QR
       api.js                 API REST des élèves (messages, discussions, classe, stickers, diffusion, profil…)
       orientation.js         chaînes d'orientation côté élèves (/api/orientation) et code d'activation
+      offers.js              formules, droits (entitlements), quotas, réglages commerciaux
+      billing.js             abonnements, paiements, reçus, Fondateur, échéances et rappels
+      campaigns.js           campagnes : création, ciblage, validation, diffusion, plafond
+      audience.js            compteurs d'audience agrégés (sans données individuelles)
+      reports.js             rapport mensuel, bilan annuel, finances de l'administration
       mail.js                envoi d'e-mails (SMTP, facultatif)
       push.js                notifications push (Web Push)
       realtime.js            présence, « écrit… », accusés de réception, signalisation WebRTC
       core.js                logique partagée (vues des messages, droits, nettoyage des éphémères)
-      catalog.js             référentiel pays / cycles / filières / niveaux
+      catalog.js             référentiel pays / cycles / filières / niveaux, villes, domaines de formation
       db.js                  stockage JSON persistant
   Frontend/
-    index.html, css/app.css, sw.js, manifest.webmanifest, icons/
+    index.html, css/app.css, css/pro.css (tableaux de bord admin / établissement), sw.js, manifest.webmanifest, icons/
     js/                      application des élèves (modules ES, sans étape de build)
 Etablissement/               l'espace des établissements
   Backend/school.js          API des établissements (/api/school) : demande, activation, publications, messages
-  Frontend/                  index.html, etab.js, etab.css, servis sur /etablissement
+  Frontend/                  index.html, etab.js, offre.js, campagnes.js, stats.js, rapports.js, etab.css (/etablissement)
 Admin/                       tout ce qui concerne l'administration
   Backend/
     admin.js                 API de l'espace d'administration (/api/admin)
+    monetisation.js          abonnements, paiements, campagnes, offres et tarifs (/api/admin/billing)
     reset-admin.js           réinitialisation d'un mot de passe administrateur
   Frontend/
-    index.html, admin.js, admin.css   interface d'administration, servie sur /admin
+    index.html, admin.js, monetisation.js, campagnes.js, admin.css   interface servie sur /admin
 ```
 
-Les parties `Admin` et `Etablissement` n'ont pas de dépendances propres : son API utilise celles d'`Application/Backend`
+Les parties `Admin` et `Etablissement` n'ont pas de dépendances propres : leur API utilise celles d'`Application/Backend`
 (Express, base de données, logique métier), et son interface réutilise la feuille de style et les
 composants d'`Application/Frontend` (`/css/app.css`, `/js/util.js`, `/js/ui.js`).
 

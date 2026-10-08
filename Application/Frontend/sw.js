@@ -1,6 +1,6 @@
 // Service worker : installation de l'application, coquille hors-ligne, notifications.
 // v2 : purge les anciens caches, qui pouvaient contenir la page élève enregistrée sous /admin.
-const CACHE = 'scola-shell-v7';
+const CACHE = 'scola-shell-v8';
 const SHELL = ['/', '/css/app.css', '/icons/icon.svg', '/icons/icon-192.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {

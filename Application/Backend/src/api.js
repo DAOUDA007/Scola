@@ -53,7 +53,7 @@ function pushUser(u) {
 }
 
 function selfView(u) {
-  return { ...C.publicUser(u, u.id), phone: u.phone, privacy: u.privacy, settings: u.settings, blocked: u.blocked, hasPin: !!u.pinHash, pinHint: u.pinHint || '', stickers: u.stickers || [], favStickers: u.favStickers || [] };
+  return { ...C.publicUser(u, u.id), phone: u.phone, city: u.city || '', cityAsked: !!u.cityAsked, privacy: u.privacy, settings: u.settings, blocked: u.blocked, hasPin: !!u.pinHash, pinHint: u.pinHint || '', stickers: u.stickers || [], favStickers: u.favStickers || [] };
 }
 
 function isMedia(u) { return typeof u === 'string' && /^\/media\/[a-f0-9]{32}(\.[a-z0-9]{1,7})?$/.test(u); }
@@ -317,6 +317,9 @@ router.patch('/me', (req, res) => {
   }
   if (b.about !== undefined) u.about = String(b.about).slice(0, 139);
   if (b.school !== undefined) u.school = String(b.school).trim().slice(0, 80);
+  // Ville facultative (Orientation) : jamais montrée à la classe ni aux établissements.
+  if (b.city !== undefined) { u.city = String(b.city || '').trim().replace(/\s+/g, ' ').slice(0, 60); u.cityAsked = true; }
+  if (b.cityAsked === true) u.cityAsked = true;
   if (b.avatar !== undefined) {
     if (b.avatar !== null && !isMedia(b.avatar)) throw httpError(400, 'Photo invalide.');
     u.avatar = b.avatar;
@@ -330,6 +333,7 @@ router.patch('/me/privacy', (req, res) => {
   const p = req.user.privacy, b = req.body;
   for (const k of ['lastSeen', 'avatar', 'about', 'phone']) if (['all', 'nobody'].includes(b[k])) p[k] = b[k];
   if (typeof b.readReceipts === 'boolean') p.readReceipts = b.readReceipts;
+  if (typeof b.personalizedAds === 'boolean') p.personalizedAds = b.personalizedAds;
   if (b.status && ['all', 'except', 'only'].includes(b.status.mode)) {
     p.status = { mode: b.status.mode, list: (b.status.list || []).filter(x => classmates(req.user).includes(x)) };
   }

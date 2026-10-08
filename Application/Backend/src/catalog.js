@@ -65,6 +65,71 @@ const cycles = [
   { id: 'doctorat', label: 'Doctorat', filieres: univ, niveaux: ['Doctorat 1', 'Doctorat 2', 'Doctorat 3'] },
 ];
 
+// Principales villes de Côte d'Ivoire (ville facultative des élèves, ciblage des campagnes).
+// Saisie libre possible pour les autres villes.
+const cities = [
+  'Abidjan', 'Bouaké', 'Daloa', 'Yamoussoukro', 'San-Pédro', 'Korhogo', 'Man', 'Divo', 'Gagnoa', 'Abengourou',
+  'Anyama', 'Agboville', 'Grand-Bassam', 'Dabou', 'Bingerville', 'Soubré', 'Séguéla', 'Odienné', 'Bondoukou',
+  'Ferkessédougou', 'Dimbokro', 'Sassandra', 'Issia', 'Toumodi', 'Adzopé', 'Aboisso', 'Katiola', 'Duékoué',
+  'Guiglo', 'Bouaflé', 'Tiassalé', 'Daoukro', 'Boundiali', 'Danané', 'Lakota', 'Sinfra', 'Oumé', 'Bonoua',
+];
+
+// Domaines de formation (ciblage des campagnes, statistiques des établissements).
+const domains = {
+  numerique: 'Informatique & numérique',
+  gestion: 'Gestion & commerce',
+  sante: 'Santé',
+  droit: 'Droit & sciences politiques',
+  lettres: 'Lettres, langues & sciences humaines',
+  sciences: 'Sciences',
+  genie: 'Génie & industrie',
+  agriculture: 'Agriculture & environnement',
+  tourisme: 'Tourisme & hôtellerie',
+  communication: 'Communication & arts',
+  general: 'Enseignement général',
+};
+
+// Correspondance filière → domaine (filières du catalogue, codes BTS compris).
+const FILIERE_DOMAIN = {
+  'Enseignement général': 'general',
+  'Série A': 'lettres', 'Série C': 'sciences', 'Série D': 'sciences', 'Série E': 'sciences', 'Série F': 'genie', 'Série G': 'gestion',
+  'Électricité': 'genie', 'Électronique': 'genie', 'Mécanique auto': 'genie', 'Froid et climatisation': 'genie', 'Bâtiment': 'genie',
+  'Comptabilité': 'gestion', 'Secrétariat': 'gestion', 'Hôtellerie': 'tourisme', 'Couture': 'communication',
+  IDA: 'numerique', RIT: 'numerique', FCGE: 'gestion', GEC: 'gestion', RHC: 'gestion', AD: 'gestion', LOG: 'gestion', TL: 'gestion',
+  COM: 'communication', MCV: 'communication', ELT: 'genie', MSI: 'genie', BAT: 'genie', TP: 'genie', TOU: 'tourisme', AGRI: 'agriculture',
+  'Informatique': 'numerique', 'Télécommunications': 'numerique', 'Mathématiques': 'sciences', 'Physique': 'sciences', 'Chimie': 'sciences',
+  'Biologie': 'sciences', 'Géologie': 'sciences', 'Mines et géologie': 'sciences', 'Médecine': 'sante', 'Pharmacie': 'sante', 'Odontologie': 'sante',
+  'Droit': 'droit', 'Sciences politiques': 'droit', 'Criminologie': 'droit', 'Sciences économiques': 'gestion', 'Gestion': 'gestion',
+  'Lettres modernes': 'lettres', 'Anglais': 'lettres', 'Allemand': 'lettres', 'Espagnol': 'lettres', 'Histoire': 'lettres', 'Géographie': 'lettres',
+  'Philosophie': 'lettres', 'Sociologie': 'lettres', 'Psychologie': 'lettres', 'Sciences de la communication': 'communication',
+  'Agronomie': 'agriculture', 'Génie civil': 'genie', 'Génie électrique': 'genie', 'Génie mécanique': 'genie', 'Génie chimique': 'genie',
+  'Architecture': 'genie',
+};
+// Mots-clés pour les filières saisies librement.
+const KEYWORDS = [
+  [/informat|numeri|reseau|telecom|developp|digital|data|logiciel|web/, 'numerique'],
+  [/medec|pharma|sante|infirm|sage.?femme|odonto|biomed|kine/, 'sante'],
+  [/droit|juridi|politi|criminol/, 'droit'],
+  [/gestion|commerc|compta|financ|banque|marketing|logisti|transport|ressources humaines|econom|management|assistanat|secretar/, 'gestion'],
+  [/genie|electr|mecani|batiment|travaux|industri|maintenance|btp|archit|mines/, 'genie'],
+  [/agri|agro|elevage|environnement|forest/, 'agriculture'],
+  [/touris|hotel|restaura|cuisine/, 'tourisme'],
+  [/communic|journal|audiovis|graphi|design|art|couture|mode/, 'communication'],
+  [/lettre|langue|anglais|espagnol|allemand|histoire|geograph|philo|sociol|psycho/, 'lettres'],
+  [/math|physi|chimi|biolog|geolog|science|serie [cde]/, 'sciences'],
+];
+
+function domainOf(filiere) {
+  if (!filiere) return null;
+  const f = String(filiere);
+  if (FILIERE_DOMAIN[f]) return FILIERE_DOMAIN[f];
+  const short = shortFiliere(f);
+  if (FILIERE_DOMAIN[short]) return FILIERE_DOMAIN[short];
+  const n = norm(f);
+  for (const [re, d] of KEYWORDS) if (re.test(n)) return d;
+  return null;
+}
+
 function norm(s) {
   return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -92,4 +157,4 @@ function resolve({ country, cycle, filiere, niveau }) {
   return { key, country, cycle: c.id, cycleLabel: c.label, filiere: fil, niveau, name };
 }
 
-module.exports = { countries, cycles, resolve };
+module.exports = { countries, cycles, cities, domains, domainOf, resolve };

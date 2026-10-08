@@ -3,6 +3,10 @@
 import { $, $$, h, esc, icon, avatar, listTime, fullDate, formatText, fileSize, extOf, docKind, hhmm, pickFiles, debounce } from '/js/util.js';
 import { toast, fail, modal, confirmBox, promptBox } from '/js/ui.js';
 import { cropImage, compressImage } from '/js/media.js';
+import * as OFFRE from '/etablissement/offre.js';
+import * as CAMP from '/etablissement/campagnes.js';
+import * as STATS from '/etablissement/stats.js';
+import * as RAPP from '/etablissement/rapports.js';
 
 const root = $('#root');
 const TK = 'scola.etab.token';
@@ -11,7 +15,7 @@ const tok = {
   set(t) { try { localStorage.setItem(TK, t); } catch {} },
   clear() { try { localStorage.removeItem(TK); } catch {} },
 };
-let ME = null, TYPES = {}, COUNTRIES = [], timers = [];
+let ME = null, TYPES = {}, COUNTRIES = [], CYCLES = [], timers = [];
 
 async function A(method, url, body) {
   const headers = {};
@@ -190,7 +194,21 @@ function loginPage() {
 }
 
 /* ======================= Espace connecté ======================= */
-const NAV = [['tableau', 'poll', 'Tableau de bord'], ['publications', 'megaphone', 'Publications'], ['messages', 'chat', 'Messages des élèves'], ['chaine', 'cap', 'Ma chaîne'], ['compte', 'key', 'Mon compte']];
+const NAV = [['tableau', 'poll', 'Tableau de bord'], ['publications', 'megaphone', 'Publications'], ['messages', 'chat', 'Messages des élèves'], ['chaine', 'cap', 'Ma chaîne'],
+  ['formule', 'star', 'Ma formule'], ['campagnes', 'flash', 'Campagnes'], ['rapports', 'file', 'Rapports'], ['compte', 'key', 'Mon compte']];
+
+// Contexte partagé avec les modules Ma formule / Campagnes / Statistiques / Rapports.
+const CTX = {
+  get: (u) => get(u), post: (u, b) => post(u, b), patch: (u, b) => patch(u, b), del: (u) => del(u),
+  uploadFile: (f) => uploadFile(f), me: () => ME, setMe: (m) => { ME = m; drawBrand(); drawBanner(); }, cycles: () => CYCLES,
+};
+for (const m of [OFFRE, CAMP, STATS, RAPP]) m.setup(CTX);
+
+// Bandeau d'échéance (rappels J-60, J-30, J-7, période de grâce) en haut de toutes les pages.
+function drawBanner() {
+  const el = $('[data-banner]');
+  if (el) el.innerHTML = OFFRE.bannerHTML(ME);
+}
 
 async function start() {
   try { ME = await get('/me'); } catch { tok.clear(); return publicPage(); }
@@ -202,7 +220,7 @@ async function start() {
         <div class="spacer"></div>
         <a href="/" target="_blank">${icon('ext', 'sm')}<span>Voir Scola</span></a>
         <a href="#" data-logout>${icon('logout', 'sm')}<span>Déconnexion</span></a></div></nav>
-    <main class="et-main"><header class="et-head"><h1 data-title></h1></header><div class="et-content" data-content></div></main></div>`;
+    <main class="et-main"><header class="et-head"><h1 data-title></h1><span class="et-plan" data-plan></span></header><div class="et-content-wrap"><div data-banner></div><div class="et-content" data-content></div></div></main></div>`;
   drawBrand();
   const nav = $('.et-nav');
   $('[data-menu]').onclick = (e) => { e.stopPropagation(); nav.classList.toggle('open'); };
@@ -217,6 +235,8 @@ async function start() {
 function drawBrand() {
   const b = $('[data-brand]');
   if (b) b.innerHTML = `${avatar({ id: ME.id, name: ME.name, avatar: ME.logo }, 40)}<div style="min-width:0"><b>${esc(ME.name)}${ME.verified ? ` ${icon('check', 'xs')}` : ''}</b><small>${esc(ME.followers)} abonné${ME.followers > 1 ? 's' : ''}</small></div>`;
+  const pl = $('[data-plan]');
+  if (pl && ME.offer) pl.innerHTML = `<a href="#/formule" class="tag ${ME.offer.status === 'active' ? 'ok' : ME.offer.status === 'grace' ? 'warn' : ''}">${esc(ME.offer.name)}</a>${ME.founder ? ' <span class="tag founder">Fondateur</span>' : ''}`;
 }
 
 async function refreshBadge() {
@@ -232,6 +252,8 @@ function route() {
   if (!ME) return publicPage();
   const [page, id] = (location.hash.replace(/^#\/?/, '') || 'tableau').split('/');
   if (!NAV.some(n => n[0] === page)) { location.hash = '#/tableau'; return; }
+  drawBanner();
+  get('/me').then(m => { ME = m; drawBrand(); drawBanner(); }).catch(() => {});
   $$('.et-links a[data-k]').forEach(a => a.classList.toggle('on', a.dataset.k === page));
   const cur = NAV.find(n => n[0] === page);
   $('[data-current]').textContent = cur[2];
@@ -241,31 +263,19 @@ function route() {
   const c = old.cloneNode(false);
   old.replaceWith(c);
   timers.slice(1).forEach(clearInterval); timers = timers.slice(0, 1);
-  ({ tableau: dashboard, publications, messages, chaine: channel, compte: account })[page](c, id);
+  ({ tableau: STATS.dashboard, publications, messages, chaine: channel, formule: OFFRE.formulePage, campagnes: CAMP.campagnesPage, rapports: RAPP.rapportsPage, compte: account })[page](c, id);
 }
 addEventListener('hashchange', () => (ME ? route() : publicPage()));
-
-async function dashboard(c) {
-  const s = await get('/stats').catch(fail);
-  if (!s) return;
-  const max = Math.max(1, ...s.byCycle.map(x => x[1]));
-  c.innerHTML = `<div class="cards">
-      <div class="stat"><small>${icon('users', 'xs')} Abonnés</small><b>${s.followers.toLocaleString('fr-FR')}</b></div>
-      <div class="stat"><small>${icon('megaphone', 'xs')} Publications</small><b>${s.posts}</b></div>
-      <div class="stat"><small>${icon('eye', 'xs')} Vues</small><b>${s.views.toLocaleString('fr-FR')}</b></div>
-      <div class="stat"><small>${icon('smile', 'xs')} Réactions</small><b>${s.reactions}</b></div>
-      <div class="stat"><small>${icon('chat', 'xs')} Messages non lus</small><b>${s.unread}</b></div></div>
-    <div class="panel"><h2>Vos abonnés par niveau d'études</h2><div class="pad bars">${s.byCycle.length ? s.byCycle.map(([k, n]) => `<div class="row2"><span>${esc(k)}</span><div class="track"><div class="fill" style="width:${(n / max) * 100}%"></div></div><b>${n}</b></div>`).join('') : '<p class="faint">Pas encore d\'abonnés. Publiez régulièrement pour vous faire connaître !</p>'}</div></div>
-    <div class="panel"><h2>Conseils</h2><div class="pad" style="font-size:14px;line-height:1.7;color:var(--text-2)">• Publiez vos dates clés : concours, inscriptions, portes ouvertes.<br>• Joignez vos brochures en PDF et des photos de vos campus.<br>• Répondez vite aux élèves qui vous écrivent : c'est décisif pour leur orientation.</div></div>`;
-}
 
 /* Publications */
 async function publications(c) {
   let attachment = null;
   c.innerHTML = `<div class="panel composer-card"><h2>Nouvelle publication</h2><div class="pad">
       <textarea data-text maxlength="6000" placeholder="Annonce, concours, inscriptions, résultats… (mise en forme : *gras*, _italique_, liens)"></textarea>
-      <div class="att"><button class="btn ghost" data-attach>${icon('clip', 'sm')} Photo, vidéo ou document</button><span data-att></span><span style="flex:1"></span><button class="btn" data-publish>${icon('send', 'sm')} Publier</button></div>
-      <p class="hint" style="margin:8px 0 0">Vos abonnés reçoivent une notification (sauf s'ils ont activé le mode silencieux).</p></div></div>
+      <div class="att"><button class="btn ghost" data-attach>${icon('clip', 'sm')} Photo, vidéo ou document</button><span data-att></span><span style="flex:1"></span>
+        <label class="chk-inline" title="Les annonces d'inscription sont mises en valeur auprès des élèves selon votre formule"><input type="checkbox" data-adm-post> Annonce d'inscription</label>
+        <button class="btn" data-publish>${icon('send', 'sm')} Publier</button></div>
+      <p class="hint" style="margin:8px 0 0">Vos abonnés reçoivent une notification (sauf s'ils ont activé le mode silencieux).<span data-quota></span></p></div></div>
     <div class="panel"><h2><span class="grow">Vos publications</span></h2><div data-list><div class="pad faint">Chargement…</div></div></div>`;
   const drawAtt = () => {
     $('[data-att]', c).innerHTML = attachment ? `<span class="att-prev">${attachment.mime.startsWith('image/') ? `<img src="${esc(attachment.url)}" alt="">` : icon(attachment.mime.startsWith('video/') ? 'video' : 'file')}<span>${esc(attachment.name)}<br><small class="faint">${fileSize(attachment.size)}</small></span><button class="icon-btn" data-rm>${icon('x', 'sm')}</button></span>` : '';
@@ -284,12 +294,18 @@ async function publications(c) {
   $('[data-publish]', c).onclick = async () => {
     const text = $('[data-text]', c).value.trim();
     if (!text && !attachment) return toast('Écrivez un texte ou joignez un fichier.');
-    try { await post('/posts', { text, media: attachment }); toast('Publication envoyée à vos abonnés'); $('[data-text]', c).value = ''; attachment = null; drawAtt(); load(); }
+    try { await post('/posts', { text, media: attachment, admission: $('[data-adm-post]', c).checked }); toast('Publication envoyée à vos abonnés'); $('[data-text]', c).value = ''; $('[data-adm-post]', c).checked = false; attachment = null; drawAtt(); load(); }
     catch (e) { fail(e); }
   };
   const load = async () => {
     const list = await get('/posts').catch(fail);
     if (!list) return;
+    try { ME = await get('/me'); } catch {}
+    const o = ME.offer || { rights: {}, quotas: {}, usage: {} };
+    const canFeature = !!o.rights.featuredPosts;
+    const fq = o.quotas.featuredPerMonth, fu = o.usage.featuredThisMonth || 0;
+    $('[data-quota]', c).innerHTML = o.quotas.postsPerMonth !== null && o.quotas.postsPerMonth !== undefined
+      ? ` <b>${o.usage.postsThisMonth} / ${o.quotas.postsPerMonth} publications ce mois-ci</b> sans abonnement. <a href="#/formule">Publications illimitées dès la formule Starter.</a>` : '';
     $('[data-list]', c).innerHTML = list.length ? list.map(p => {
       const md = p.media;
       const thumb = !md ? icon('megaphone') : p.type === 'image' ? '' : p.type === 'video' ? `<video src="${esc(md.url)}#t=0.5" preload="metadata" muted></video>` : `<span style="font-weight:700;font-size:13px">${esc(extOf(md.name).toUpperCase())}</span>`;
@@ -297,7 +313,12 @@ async function publications(c) {
       return `<div class="my-post" data-id="${p.id}"><div class="thumb" style="${p.type === 'image' ? `background-image:url('${esc(md.url)}')` : ''}">${thumb}</div>
         <div class="body"><div class="txt">${p.text ? formatText(p.text) : `<i class="faint">${esc(md?.name || '')}</i>`}</div>
         <div class="meta2"><span>${esc(fullDate(p.createdAt))}${p.editedAt ? ' · modifié' : ''}</span><span>${icon('eye', 'xs')} ${p.views} vue${p.views > 1 ? 's' : ''}</span>${reacts ? `<span>${esc(reacts)}</span>` : ''}
-          <span style="flex:1"></span><button class="btn text" data-edit style="height:28px">Modifier</button><button class="btn text danger" data-del style="height:28px">Supprimer</button></div></div></div>`;
+          ${p.admission ? '<span class="tag">Inscriptions</span>' : ''}${p.featuredUntil ? `<span class="tag ok">${icon('star', 'xs')} Mise en avant jusqu'au ${esc(new Date(p.featuredUntil).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }))}</span>` : ''}
+          <span style="flex:1"></span>
+          ${p.featuredUntil ? '<button class="btn text" data-unfeature style="height:28px">Retirer la mise en avant</button>'
+            : canFeature ? `<button class="btn text" data-feature style="height:28px" ${fq !== null && fu >= fq ? `disabled title="Vos ${fq} mises en avant du mois sont utilisées"` : ''}>${icon('star', 'xs')} Mettre en avant${fq !== null ? ` (${Math.max(0, fq - fu)} restante${fq - fu > 1 ? 's' : ''})` : ''}</button>`
+            : '<a class="btn text" href="#/formule" style="height:28px" title="Publications mises en avant : formule Standard et plus">' + icon('star', 'xs') + ' Mettre en avant</a>'}
+          <button class="btn text" data-edit style="height:28px">Modifier</button><button class="btn text danger" data-del style="height:28px">Supprimer</button></div></div></div>`;
     }).join('') : `<div class="empty">${icon('megaphone')}Aucune publication. Votre première annonce apparaîtra ici.</div>`;
   };
   c.addEventListener('click', async (e) => {
@@ -309,6 +330,11 @@ async function publications(c) {
       const v = await promptBox('Modifier la publication', { value: cur?.text || '', max: 6000, multiline: true });
       if (v !== null) { try { await patch('/posts/' + id, { text: v }); toast('Publication modifiée'); load(); } catch (er) { fail(er); } }
     }
+    if (e.target.closest('[data-feature]')) {
+      if (!(await confirmBox('Mettre en avant cette publication ?', 'Elle apparaîtra en tête de votre chaîne et dans « À la une » de l\'onglet Orientation pendant 7 jours. Une mise en avant retirée avant la fin n\'est pas rendue.', { ok: 'Mettre en avant' }))) return;
+      try { await post(`/posts/${id}/feature`); toast('Publication mise en avant'); load(); } catch (er) { fail(er); }
+    }
+    if (e.target.closest('[data-unfeature]')) { try { await del(`/posts/${id}/feature`); toast('Mise en avant retirée'); load(); } catch (er) { fail(er); } }
     if (e.target.closest('[data-del]') && await confirmBox('Supprimer cette publication ?', 'Elle disparaîtra de la chaîne pour tous les abonnés.', { ok: 'Supprimer', danger: true })) {
       try { await del('/posts/' + id); toast('Publication supprimée'); load(); } catch (er) { fail(er); }
     }
@@ -338,7 +364,7 @@ async function messages(c, openId) {
     const t = $('[data-thread]', c);
     const keep = t.querySelector('textarea')?.value || '';
     t.innerHTML = `<div class="student-card"><button class="icon-btn" data-back title="Retour">${icon('back')}</button>${avatar({ id: s.id, name: s.name, avatar: s.avatar }, 40)}<div><b>${esc(s.name)}</b><div class="faint" style="font-size:13px">${esc(s.className)}${s.country ? ' · ' + esc(s.country) : ''}${s.school ? ' · ' + esc(s.school) : ''}</div></div><span style="flex:1"></span><button class="btn text danger" data-del-thread title="Supprimer l'échange">${icon('trash', 'sm')} <span class="hide-sm">Supprimer</span></button></div>
-      <div class="msgs" data-msgs>${r.messages.map(m => `<div class="bub ${m.from === 'school' ? 'me' : ''}">${m.postRef ? `<div class="quote" style="--qc:var(--brand)"><div class="q"><b>Votre publication</b><span>${esc(m.postRef.text)}</span></div></div>` : ''}${m.media ? `<a href="${esc(m.media.url)}" target="_blank" rel="noopener">📎 ${esc(m.media.name)}</a>\n` : ''}${m.text ? formatText(m.text) : ''}<small>${listTime(m.createdAt) === hhmm(m.createdAt) ? '' : esc(listTime(m.createdAt)) + ' · '}${hhmm(m.createdAt)}</small></div>`).join('')}</div>
+      <div class="msgs" data-msgs>${r.messages.map(m => `<div class="bub ${m.from === 'school' ? 'me' : ''} ${m.info ? 'info-req' : ''}">${m.info ? `<span class="tag ok" style="margin-bottom:4px;display:inline-block">${m.info.source === 'ad' ? 'Demande d\'informations · via votre publicité' : 'Demande d\'informations'}</span>\n` : ''}${m.postRef ? `<div class="quote" style="--qc:var(--brand)"><div class="q"><b>Votre publication</b><span>${esc(m.postRef.text)}</span></div></div>` : ''}${m.media ? `<a href="${esc(m.media.url)}" target="_blank" rel="noopener">📎 ${esc(m.media.name)}</a>\n` : ''}${m.text ? formatText(m.text) : ''}<small>${listTime(m.createdAt) === hhmm(m.createdAt) ? '' : esc(listTime(m.createdAt)) + ' · '}${hhmm(m.createdAt)}</small></div>`).join('')}</div>
       <div class="reply"><textarea rows="1" data-reply maxlength="4000" placeholder="Répondre à ${esc(s.name)}…"></textarea><button class="btn" data-send>${icon('send', 'sm')}</button></div>`;
     const ta = $('[data-reply]', t);
     ta.value = keep;
@@ -372,8 +398,11 @@ async function messages(c, openId) {
 
 /* Ma chaîne (profil public) */
 function channel(c) {
+  c.innerHTML = '<div data-prof></div>';
+  const prof = $('[data-prof]', c);
+  OFFRE.officialPanels(c);
   const draw = () => {
-    c.innerHTML = `<div class="panel"><h2>Profil public de votre chaîne</h2><form class="pad" data-f>
+    prof.innerHTML = `<div class="panel"><h2>Profil public de votre chaîne</h2><form class="pad" data-f>
         <div class="et-logo-pick"><div class="ph" data-ph>${ME.logo ? `<img src="${esc(ME.logo)}" alt="">` : icon('cap', 'lg')}</div><div><button type="button" class="btn ghost" data-logo>Changer le logo</button></div></div>
         <div class="et-grid">
           <div class="field full"><label>Nom</label><input class="input" name="name" maxlength="120" value="${esc(ME.name)}"></div>
@@ -386,7 +415,7 @@ function channel(c) {
           <div class="field full"><label>Filières et formations</label><textarea class="input boxed" name="programs" rows="3" maxlength="2000">${esc(ME.programs || '')}</textarea></div>
         </div>
         <button class="btn">Enregistrer</button></form></div>
-      <p class="hint">${ME.verified ? `${icon('check', 'xs')} Établissement certifié par Scola.` : 'Le badge « certifié » est attribué par l\'administration de Scola.'} Votre e-mail (${esc(ME.email)}) est affiché comme contact sur votre chaîne.</p>`;
+      <p class="hint">${ME.verified ? `${icon('check', 'xs')} Badge « Établissement vérifié » affiché sur votre chaîne.` : 'Le badge « Établissement vérifié » est accordé par l\'administration de Scola après vérification, et affiché à partir de la formule Standard.'} Votre e-mail (${esc(ME.email)}) est affiché comme contact sur votre chaîne.</p>`;
     $('[data-logo]', c).onclick = async () => {
       const files = await pickFiles({ accept: 'image/*' });
       if (!files) return;
@@ -425,7 +454,9 @@ function account(c) {
 (async () => {
   try {
     TYPES = await get('/types');
-    COUNTRIES = (await (await fetch('/api/catalog')).json()).countries || [];
+    const cat = await (await fetch('/api/catalog')).json();
+    COUNTRIES = cat.countries || [];
+    CYCLES = cat.cycles || [];
   } catch {}
   if (tok.get()) start(); else publicPage();
 })();

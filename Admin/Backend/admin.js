@@ -17,6 +17,7 @@ const { storeMedia } = backendRequire('./src/db');
 const push = backendRequire('./src/push');
 const O = backendRequire('./src/orientation');
 const mail = backendRequire('./src/mail');
+const OF = backendRequire('./src/offers');
 const { data, save } = C;
 
 const router = express.Router();
@@ -90,6 +91,9 @@ router.use((req, res, next) => {
   } catch { return res.status(401).json({ error: 'Session administrateur expirée. Reconnectez-vous.' }); }
   next();
 });
+
+// Monétisation : abonnements, paiements et reçus, campagnes, offres et tarifs (/api/admin/billing/…).
+router.use(require('./monetisation'));
 
 router.get('/me', (req, res) => res.json(adminView(req.admin, req.admin.id)));
 
@@ -179,6 +183,8 @@ router.get('/stats', (req, res) => {
     schoolRequests: Object.values(data.schools).filter(x => x.status === 'pending').length,
     posts: Object.values(data.posts).reduce((n, l) => n + l.length, 0),
     reportsPending: data.reports.filter(r => !r.resolved).length,
+    planRequests: Object.values(data.planRequests || {}).filter(r => r.status === 'pending').length,
+    campaignQueue: Object.values(data.campaigns || {}).filter(c => ['awaiting_payment', 'in_review'].includes(c.status)).length,
     admins: Object.keys(data.admins).length,
     signups,
     topClasses: classes.sort((a, b) => b.memberIds.length - a.memberIds.length).slice(0, 8).map(c => ({ id: c.id, name: c.name, country: c.country, members: c.memberIds.length })),
@@ -483,11 +489,13 @@ router.get('/reports', (req, res) => {
   if (req.query.status === 'resolved') list = list.filter(r => r.resolved);
   res.json(list.slice(0, 300).map(r => ({
     ...r,
-    className: r.kind === 'channel' ? 'Orientation · ' + (data.schools[r.schoolId]?.name || 'établissement') : (data.classes[r.classId]?.name || '—'),
+    className: r.kind === 'channel' ? 'Orientation · ' + (data.schools[r.schoolId]?.name || 'établissement')
+      : r.kind === 'ad' ? 'Publicité · ' + (data.schools[r.schoolId]?.name || 'établissement') : (data.classes[r.classId]?.name || '—'),
+    campaignStatus: r.kind === 'ad' ? data.campaigns[r.campaignId]?.status || 'supprimée' : undefined,
     byName: data.users[r.by]?.name || 'Inconnu',
     userName: r.userId ? (data.users[r.userId]?.name || 'Inconnu') : null,
     userSuspended: !!data.users[r.userId]?.suspended,
-    messageDeleted: r.message ? (r.kind === 'channel' ? !O.findPost(r.message.id).p : !!C.findMessage(r.message.id)?.deletedForAll) : false,
+    messageDeleted: r.message ? (r.kind === 'ad' ? false : r.kind === 'channel' ? !O.findPost(r.message.id).p : !!C.findMessage(r.message.id)?.deletedForAll) : false,
     resolvedByName: r.resolvedBy ? (data.admins[r.resolvedBy]?.name || '—') : null,
   })));
 });
@@ -513,6 +521,7 @@ function schoolRow(s) {
     activatedAt: s.activatedAt || null, codeSentAt: s.codeSentAt || null, codeSentBy: s.codeSentBy || null,
     codeEmailed: !!s.codeEmailed, codeExpires: s.codeExpires || null, rejectReason: s.rejectReason || '',
     followers: (s.followerIds || []).length, posts: O.postsOf(s.id).length, lastLogin: s.lastLogin || null,
+    plan: ['active', 'suspended'].includes(s.status) ? { name: OF.currentPlan(s).plan.name, status: OF.currentPlan(s).status } : null, founder: !!s.founder, verifiedShown: OF.showsVerified(s),
     waitingHours: s.status === 'pending' ? Math.floor((C.now() - s.requestedAt) / 3600e3) : null,
   };
 }

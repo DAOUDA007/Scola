@@ -69,7 +69,7 @@ function requireAuth(req, res, next) {
 
 const router = express.Router();
 
-router.get('/catalog', (req, res) => res.json({ countries: catalog.countries, cycles: catalog.cycles }));
+router.get('/catalog', (req, res) => res.json({ countries: catalog.countries, cycles: catalog.cycles, cities: catalog.cities, domains: catalog.domains }));
 
 // Aperçu des classes existantes pour aider au choix pendant l'inscription.
 router.get('/classes/lookup', (req, res) => {

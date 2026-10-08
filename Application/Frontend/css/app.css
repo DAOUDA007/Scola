@@ -800,3 +800,66 @@ svg.i.lg { width: 28px; height: 28px; }
 .lock-box svg.i { flex: none; width: 22px; height: 22px; }
 .lock-box b { display: block; font-size: 14px; }
 .lock-box span { font-size: 13px; color: var(--text-2); }
+
+/* ---------- Orientation : contenus payants et page officielle des établissements ---------- */
+/* Publicité : toujours marquée « Sponsorisé », jamais en lecture automatique avec le son. */
+.ad { margin: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-sm); }
+.ad-head { display: flex; align-items: center; gap: 10px; padding: 10px 10px 8px 12px; }
+.ad-head b { display: inline-block; max-width: 100%; font-size: 14px; vertical-align: middle; }
+.ad-head .verified { margin-left: 4px; }
+.ad-label { font-size: 12px; color: var(--text-3); }
+.ad-label a, .une-foot a { color: var(--text-2); text-decoration: underline; }
+.ad-media { height: 130px; background: var(--panel-3) center / cover no-repeat; }
+.ad-media.big { height: 190px; }
+.ad-media video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
+.ad-body { padding: 10px 12px 4px; font-size: 14px; }
+.ad-body b { display: block; font-size: 15px; }
+.ad-body p { margin: 4px 0 0; color: var(--text-2); line-height: 1.45; }
+.ad-cta { margin: 8px 12px 12px; height: 36px; width: calc(100% - 24px); }
+.ad-cta.sm { margin: 8px 0 0; width: 100%; height: 32px; font-size: 13.5px; }
+.ad.big { border-color: var(--brand); }
+.sponsor { font-weight: 700; color: var(--text-2); }
+.feat { font-weight: 600; color: var(--brand-strong); }
+.item.is-sponsored { background: color-mix(in srgb, var(--brand-soft) 35%, transparent); }
+.icon-btn.mini { width: 26px; height: 26px; margin-left: auto; }
+
+/* À la une */
+.ori-une { display: flex; gap: 10px; overflow-x: auto; padding: 4px 12px 12px; scroll-snap-type: x mandatory; }
+.une-card { flex: 0 0 230px; scroll-snap-align: start; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; cursor: pointer; display: flex; flex-direction: column; }
+.une-card:hover { border-color: var(--brand); }
+.une-img { height: 100px; background: var(--panel-3) center / cover no-repeat; }
+.une-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.une-head { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13.5px; }
+.une-head b { min-width: 0; }
+.une-text { font-size: 13.5px; line-height: 1.45; color: var(--text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.une-foot { font-size: 12px; color: var(--text-3); margin-top: auto; }
+
+/* Ville facultative */
+.ori-city { display: flex; gap: 12px; margin: 10px 12px; padding: 12px 14px; border-radius: 14px; background: var(--brand-soft); font-size: 14px; }
+.ori-city > svg.i { color: var(--brand-strong); flex: none; margin-top: 2px; }
+.ori-city small { display: block; color: var(--text-2); font-size: 12.5px; margin-top: 2px; }
+
+/* Badges */
+.founder-mark { display: inline-flex; vertical-align: middle; margin-left: 4px; color: #D97706; }
+.founder-tag { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; padding: 3px 10px; border-radius: 12px; font-size: 12.5px; font-weight: 700; background: #fef3c7; color: #92400e; }
+:root[data-theme="dark"] .founder-tag { background: #3b2a06; color: #fcd34d; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .founder-tag { background: #3b2a06; color: #fcd34d; } }
+
+/* Page officielle : inscriptions, formations, galerie */
+.ori-adm { display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: var(--panel-2); border-bottom: 1px solid var(--line); font-size: 13.5px; cursor: pointer; }
+.ori-adm.hl { background: var(--brand-soft); }
+.ori-adm > svg.i { color: var(--brand-strong); }
+.ori-adm .link { color: var(--brand-strong); font-weight: 600; display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.adm-card.hl { border: 1px solid var(--brand); }
+.adm-state { font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 10px; background: var(--panel-3); color: var(--text-2); }
+.adm-state.open { background: #dcfce7; color: #166534; }
+.adm-docs { margin: 4px 0 0; padding-left: 20px; }
+.formation-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 16px; border-top: 1px solid var(--line); font-size: 14px; }
+.formation-row small { display: block; color: var(--text-3); font-size: 12.5px; }
+.formation-row .fees { font-size: 12.5px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.ori-featured { display: flex; flex-direction: column; gap: 6px; margin: 4px auto 8px; max-width: 560px; width: 100%; }
+.ori-featured button { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 10px; background: var(--panel); box-shadow: var(--shadow-sm); font-size: 13.5px; text-align: left; color: var(--text); }
+.ori-featured button svg.i { color: var(--brand-strong); flex: none; }
+.post.flash { box-shadow: 0 0 0 3px var(--brand); transition: box-shadow .3s; }
+.ori-bar { gap: 8px; flex-wrap: wrap; }
+.ori-bar .btn { min-width: 0; flex: 1 1 200px; max-width: 280px; }

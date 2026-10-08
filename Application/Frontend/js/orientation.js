@@ -8,8 +8,10 @@ import { nav } from './nav.js';
 import { live } from './chatlist.js';
 import { openViewer } from './media.js';
 import { QUICK } from './emoji.js';
+import * as PLUS from './orientation-plus.js';
+import * as ADS from './ads.js';
 
-export const O = { following: [], suggestions: [], inquiries: [], types: {}, loaded: false };
+export const O = { following: [], suggestions: [], inquiries: [], types: {}, banner: null, une: [], loaded: false };
 let panel = null; // { kind: 'channel' | 'inquiry', id, posts, root }
 
 export async function loadOrientation() {
@@ -21,7 +23,9 @@ export function unreadTotal() {
 }
 
 const logo = (c, size = 49) => avatar({ id: c.id, name: c.name, avatar: c.logo }, size);
-const badgeV = (c) => (c.verified ? `<span class="verified" title="Établissement certifié par Scola">${icon('check', 'xs')}</span>` : '');
+const badgeV = (c) => (c.verified ? `<span class="verified" title="Établissement vérifié par Scola">${icon('check', 'xs')}</span>` : '') + PLUS.founderMark(c);
+// Publicité retrouvée par son identifiant (bannière ou carte sponsorisée).
+const findAd = (id) => (O.banner?.id === id ? O.banner : O.une.find(x => x.kind === 'ad' && x.ad.id === id)?.ad);
 const followersTxt = (n) => `${n.toLocaleString('fr-FR')} abonné${n > 1 ? 's' : ''}`;
 
 /* ---------------- Onglet ---------------- */
@@ -33,7 +37,7 @@ export function render(side) {
   const list = $('[data-list]', side);
   const draw = () => {
     const inq = O.inquiries;
-    list.innerHTML = `
+    list.innerHTML = `${ADS.bannerHTML(O.banner)}${PLUS.cityPromptHTML()}
       ${O.following.length ? `<div class="section-title">Établissements suivis</div>${O.following.map(c => `
         <div class="item" data-channel="${c.id}"><div class="av-wrap">${logo(c)}</div>
           <div class="body"><div class="top"><span class="name">${esc(c.name)}${badgeV(c)}</span><span class="time">${c.last ? listTime(c.last.createdAt) : ''}</span></div>
@@ -44,6 +48,7 @@ export function render(side) {
         <div class="item compact" data-inquiry="${q.schoolId}">${avatar({ id: q.schoolId, name: q.school?.name, avatar: q.school?.logo }, 42)}
           <div class="body"><div class="top"><span class="name">${esc(q.school?.name || 'Établissement')}</span><span class="time">${listTime(q.updatedAt)}</span></div>
           <div class="bot"><span class="prev"><span>${q.last ? (q.last.from === 'student' ? 'Vous : ' : '') + esc(q.last.text) : ''}</span></span>${q.unread ? `<span class="badge">${q.unread}</span>` : ''}</div></div></div>`).join('')}` : ''}
+      ${PLUS.aLaUneHTML(O.une)}
       <div class="section-title">Découvrir des établissements</div>
       ${O.suggestions.length ? O.suggestions.slice(0, 8).map(suggestion).join('') + `<div class="menu-row" data-discover><div class="txt" style="color:var(--brand-strong);font-weight:600">Voir tous les établissements</div></div>`
         : '<div class="empty" style="padding:16px 24px">Aucun autre établissement pour le moment.</div>'}
@@ -57,12 +62,23 @@ export function render(side) {
     { icon: 'refresh', label: 'Actualiser', onClick: loadOrientation },
     { icon: 'ext', label: 'Espace établissement', onClick: () => open('/etablissement/', '_blank') },
   ]);
+  live(side, 'me', draw);
   side.addEventListener('click', (e) => {
+    if (ADS.handleClick(e, { find: findAd, openChannel, reload: loadOrientation })) return;
+    if (e.target.closest('[data-city-set]')) return PLUS.pickCity().then(ok => ok && loadOrientation());
+    if (e.target.closest('[data-city-later]')) return PLUS.cityLater().then(draw);
+    const une = e.target.closest('[data-une-i]');
+    if (une) {
+      const it = O.une[Number(une.dataset.uneI)];
+      if (e.target.closest('[data-why]')) { e.preventDefault(); return it?.why && PLUS.whyBox(it.why); }
+      return it && openChannel(it.channel.id, { post: it.post.id, from: 'une' });
+    }
+    if (sponsoredClick(e)) return;
     if (e.target.closest('[data-discover]')) return discover(side);
     const f = e.target.closest('[data-follow]');
     if (f) { e.stopPropagation(); return follow(f.dataset.follow); }
     const c = e.target.closest('[data-channel]');
-    if (c) return openChannel(c.dataset.channel);
+    if (c) return openChannel(c.dataset.channel, { from: c.dataset.from || null });
     const q = e.target.closest('[data-inquiry]');
     if (q) return openInquiry(q.dataset.inquiry);
   });
@@ -103,11 +119,21 @@ async function deleteInquiry(schoolId, name = 'cet établissement') {
   } catch (e) { fail(e); }
 }
 
-function suggestion(c) {
-  return `<div class="item compact" data-channel="${c.id}">${logo(c, 44)}
+// Établissement dans une liste (suggestions, annuaire). Mis en tête par une campagne : « Sponsorisé ».
+const SPONS = new Map();
+function suggestion(c, from = 'suggestion') {
+  if (c.sponsored) SPONS.set(c.sponsored.adId, c.sponsored.why);
+  return `<div class="item compact ${c.sponsored ? 'is-sponsored' : ''}" data-channel="${c.id}" data-from="${from}" ${c.sponsored ? `data-sp="${esc(c.sponsored.adId)}"` : ''}>${logo(c, 44)}
     <div class="body"><div class="top"><span class="name">${esc(c.name)}${badgeV(c)}</span></div>
-    <div class="bot"><span class="prev"><span>${esc(c.typeLabel)} · ${esc(c.city || c.country || '')} · ${esc(followersTxt(c.followers))}</span></span></div></div>
+    <div class="bot"><span class="prev"><span>${c.sponsored ? `<span class="sponsor">Sponsorisé</span> · <a href="#" data-sp-why>Pourquoi ?</a> · ` : ''}${esc(c.typeLabel)} · ${esc(c.city || c.country || '')} · ${esc(followersTxt(c.followers))}</span></span></div></div>
     <button class="btn ${c.following ? 'ghost' : ''} ori-follow" data-follow="${c.id}">${c.following ? 'Suivi' : 'Suivre'}</button></div>`;
+}
+function sponsoredClick(e) {
+  const it = e.target.closest('[data-sp]');
+  if (!it) return false;
+  if (e.target.closest('[data-sp-why]')) { e.preventDefault(); e.stopPropagation(); PLUS.whyBox(SPONS.get(it.dataset.sp) || ''); return true; }
+  if (!e.target.closest('[data-follow]')) post(`/orientation/ads/${it.dataset.sp}/click`).catch(() => {});
+  return false;
 }
 
 function discover(side) {
@@ -117,21 +143,25 @@ function discover(side) {
       let type = '';
       body.innerHTML = `<div class="search-bar" style="padding:10px 12px"><div class="search-box">${icon('search', 'sm')}<input placeholder="Nom, ville, filière…" data-q></div></div>
         <div class="filters"><button class="chip on" data-t="">Tous</button>${Object.entries(O.types || {}).map(([k, l]) => `<button class="chip" data-t="${k}">${esc(l)}</button>`).join('')}</div>
+        <div style="padding:0 12px 8px"><select class="select" data-dom style="width:100%"><option value="">Tous les domaines de formation</option></select></div>
         <div data-r><div class="empty">Chargement…</div></div>`;
+      PLUS.catalog().then(cat => { $('[data-dom]', body).insertAdjacentHTML('beforeend', Object.entries(cat.domains || {}).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')); });
+      $('[data-dom]', body).onchange = () => run();
       const run = debounce(async () => {
         try {
-          const list = await get(`/orientation/channels?q=${encodeURIComponent($('[data-q]', body).value)}&type=${type}`);
-          $('[data-r]', body).innerHTML = list.map(suggestion).join('') || `<div class="empty">${icon('search')}Aucun établissement trouvé.</div>`;
+          const list = await get(`/orientation/channels?q=${encodeURIComponent($('[data-q]', body).value)}&type=${type}&domain=${$('[data-dom]', body).value}`);
+          $('[data-r]', body).innerHTML = list.map(c => suggestion(c, 'search')).join('') || `<div class="empty">${icon('search')}Aucun établissement trouvé.</div>`;
         } catch (e) { fail(e); }
       }, 250);
       $('[data-q]', body).oninput = run;
       body.addEventListener('click', (e) => {
         const t = e.target.closest('[data-t]');
         if (t) { type = t.dataset.t; body.querySelectorAll('[data-t]').forEach(x => x.classList.toggle('on', x === t)); run(); }
+        if (sponsoredClick(e)) return;
         const f = e.target.closest('[data-follow]');
         if (f) { e.stopPropagation(); follow(f.dataset.follow).then(run); return; }
         const c = e.target.closest('[data-channel]');
-        if (c && !t) openChannel(c.dataset.channel);
+        if (c && !t) openChannel(c.dataset.channel, { from: 'search' });
       });
       run();
     },
@@ -170,9 +200,9 @@ nav.hasPanel = () => !!panel;
 nav.openChannel = (id, opts) => openChannel(id, opts);
 nav.openInquiry = (id) => openInquiry(id);
 
-export async function openChannel(id, { post: postId, keepScroll } = {}) {
+export async function openChannel(id, { post: postId, keepScroll, from } = {}) {
   let c;
-  try { c = await get('/orientation/channels/' + id); } catch (e) { return fail(e); }
+  try { c = await get(`/orientation/channels/${id}?${from ? 'from=' + encodeURIComponent(from) : ''}${postId ? '&post=' + encodeURIComponent(postId) : ''}`); } catch (e) { return fail(e); }
   openPanel('channel', id);
   panel.channel = c;
   const root = h(`<div class="conv col ori-channel" style="height:100%;position:relative">
@@ -182,10 +212,11 @@ export async function openChannel(id, { post: postId, keepScroll } = {}) {
       ${c.following ? `<button class="icon-btn" data-mute title="${c.muted ? 'Réactiver les notifications' : 'Mode silencieux'}">${icon(c.muted ? 'bellOff' : 'bell')}</button>` : ''}
       <button class="icon-btn" data-menu title="Menu">${icon('more')}</button>
     </header>
+    ${PLUS.admissionsBannerHTML(c)}
     <div class="messages-area"><div class="wall"></div><div class="messages scroll" data-list><div class="messages-inner" data-inner><div class="sys">Chargement…</div></div></div></div>
     <div class="ori-bar">${c.following
-      ? `<button class="btn ghost" data-contact>${icon('chat', 'sm')} Contacter l'établissement</button>`
-      : `<button class="btn" data-follow-main>${icon('plus', 'sm')} Suivre</button>`}</div></div>`);
+      ? `<button class="btn ghost" data-contact>${icon('chat', 'sm')} Contacter</button>`
+      : `<button class="btn" data-follow-main>${icon('plus', 'sm')} Suivre</button>`}${c.infoButton ? `<button class="btn ${c.following ? '' : 'ghost'}" data-info-req>${icon('info', 'sm')} Demander des informations</button>` : ''}</div></div>`);
   panel.root = root;
   nav.els.main.innerHTML = '';
   nav.els.main.append(root);
@@ -194,6 +225,8 @@ export async function openChannel(id, { post: postId, keepScroll } = {}) {
   $('[data-mute]', root)?.addEventListener('click', () => setMuted(c.id, !c.muted));
   $('[data-follow-main]', root)?.addEventListener('click', () => follow(c.id));
   $('[data-contact]', root)?.addEventListener('click', () => openInquiry(c.id));
+  $('[data-info-req]', root)?.addEventListener('click', () => PLUS.infoRequest(c, { source: 'channel', onSent: () => loadOrientation() }));
+  $('[data-adm]', root)?.addEventListener('click', () => openChannelInfo(c.id));
   $('[data-menu]', root).onclick = (e) => channelMenu(c, e.currentTarget);
   if (!c.following) {
     // Comme sur WhatsApp : il faut suivre la chaîne pour voir et télécharger ce qu'elle publie.
@@ -237,7 +270,7 @@ function postHTML(p, c) {
   return `<div class="post" data-post="${p.id}">
     ${media}
     ${p.text ? `<div class="text">${formatText(p.text)}</div>` : ''}
-    <div class="post-meta">${p.editedAt ? 'Modifié · ' : ''}${hhmm(p.createdAt)} · ${icon('eye', 'xs')} ${p.views}</div>
+    <div class="post-meta">${p.featuredUntil ? `<span class="feat">${icon('star', 'xs')} Mis en avant</span> · ` : ''}${p.admission ? '<span class="feat">Inscriptions</span> · ' : ''}${p.editedAt ? 'Modifié · ' : ''}${hhmm(p.createdAt)} · ${icon('eye', 'xs')} ${p.views}</div>
     <div class="post-actions">
       ${total ? `<button class="post-reacts ${p.myReaction ? 'mine' : ''}" data-react="${p.id}">${reacts.slice(0, 3).map(r => r[0]).join('')} <small>${total}</small></button>` : `<button class="post-reacts none" data-react="${p.id}">${icon('smile', 'sm')}</button>`}
       <button class="post-reply" data-reply="${p.id}">${icon('reply', 'sm')} Répondre</button>
@@ -249,6 +282,8 @@ function drawPosts(mode = 'keep') {
   const inner = $('[data-inner]', panel.root), list = $('[data-list]', panel.root);
   const c = panel.channel;
   let html = `<div class="sys e2e">${icon('lock', 'xs')} Chaîne de ${esc(c.name)}. Vos réactions sont anonymes pour les autres abonnés ; l'établissement ne voit pas votre numéro.</div>`;
+  const feat = panel.posts.filter(p => p.featuredUntil);
+  if (feat.length) html += `<div class="ori-featured">${feat.map(p => `<button data-goto="${p.id}">${icon('star', 'xs')} <span class="ellipsis">${esc((p.text || p.media?.name || 'Publication').replace(/\s+/g, ' ').slice(0, 90))}</span></button>`).join('')}</div>`;
   let lastDay = null;
   for (const p of panel.posts) {
     const d = dayLabel(p.createdAt);
@@ -267,6 +302,8 @@ function drawPosts(mode = 'keep') {
 function bindPosts(root) {
   root.addEventListener('click', (e) => {
     if (!panel || panel.kind !== 'channel') return;
+    const g = e.target.closest('[data-goto]');
+    if (g) { const el = panel.root.querySelector(`.post[data-post="${g.dataset.goto}"]`); el?.scrollIntoView({ block: 'center', behavior: 'smooth' }); el?.classList.add('flash'); setTimeout(() => el?.classList.remove('flash'), 1600); return; }
     const r = e.target.closest('[data-react]');
     if (r) return reactBar(r.dataset.react, r);
     const rep = e.target.closest('[data-reply]');
@@ -359,13 +396,14 @@ export function openChannelInfo(id) {
         c = await get('/orientation/channels/' + id);
         m = c.following ? await get(`/orientation/channels/${id}/media`) : { media: [], docs: [], links: [] };
       } catch (e) { body.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+      const cycles = (await PLUS.catalog()).cycles || [];
       const long = (c.description || '').length > 220;
       const media = m.media.slice(0, 10);
       const row = (ic, title, sub = '', attrs = '', cls = '') => `<div class="menu-row ${cls}" ${attrs}>${icon(ic)}<div class="txt"><span>${title}</span>${sub ? `<small>${sub}</small>` : ''}</div></div>`;
       body.innerHTML = `
         <div class="profile-top">${logo(c, 120)}
           <h3>${esc(c.name)}${badgeV(c)}</h3>
-          <p>Chaîne · ${esc(followersTxt(c.followers))}</p>
+          <p>Chaîne · ${esc(followersTxt(c.followers))}</p>${PLUS.founderTag(c)}
           <div class="profile-actions">
             <button data-a="follow">${icon(c.following ? 'check' : 'plus')}${c.following ? 'Suivie' : 'Suivre'}</button>
             <button data-a="forward">${icon('forward')}Transférer</button>
@@ -375,6 +413,7 @@ export function openChannelInfo(id) {
           <div class="ori-desc ${long ? 'clamp' : ''}" data-desc>${formatText(c.description || 'Aucune description.')}</div>
           ${long ? '<button class="btn text" data-a="more" style="padding:0;height:auto;margin-top:4px">Voir plus</button>' : ''}
           <div class="faint" style="font-size:13px;margin-top:10px">${esc(c.typeLabel)} · ${esc([c.city, c.country].filter(Boolean).join(', '))}<br>Créée le ${esc(fullDate(c.createdAt).replace(/ à .*/, ''))}</div></div>
+        ${PLUS.officialHTML(c, cycles)}
         ${c.programs ? `<div class="card"><div class="card-title">Filières et formations</div><div class="card-pad" style="padding-top:0;white-space:pre-wrap">${esc(c.programs)}</div></div>` : ''}
         <div class="card">
           ${c.website ? row('link', `<a href="${esc(c.website)}" target="_blank" rel="noopener">${esc(c.website.replace(/^https?:\/\//, ''))}</a>`, 'Site web') : ''}
@@ -397,6 +436,9 @@ export function openChannelInfo(id) {
         const a = e.target.closest('[data-a]')?.dataset.a;
         const i = e.target.closest('[data-i]')?.dataset.i;
         if (i !== undefined) return openViewer(m.media.map(p => ({ url: p.media.url, type: p.type, caption: p.text, createdAt: p.createdAt })), Number(i));
+        const g = e.target.closest('[data-g]')?.dataset.g;
+        if (g !== undefined) return openViewer(c.gallery.map(u => ({ url: u, type: 'image' })), Number(g));
+        if (a === 'info') return PLUS.infoRequest(c, { source: 'channel', onSent: () => loadOrientation() });
         if (a === 'follow') return c.following ? null : follow(c.id).then(() => openChannelInfo(c.id));
         if (a === 'forward') return forwardChannel(c);
         if (a === 'share') return shareChannel(c);

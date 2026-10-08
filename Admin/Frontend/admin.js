@@ -2,6 +2,8 @@
 import { $, $$, h, esc, icon, avatar, listTime, fullDate, relTime, fold, debounce, fileSize, copyText, pickFiles } from '/js/util.js';
 import { toast, fail, modal, confirmBox, promptBox, ctxMenu } from '/js/ui.js';
 import { cropImage } from '/js/media.js';
+import * as MON from './monetisation.js';
+import * as CMP from './campagnes.js';
 
 const root = $('#root');
 const TK = 'scola.admin.token';
@@ -73,6 +75,9 @@ const NAV = [
   ['classes', 'cap', 'Classes'],
   ['reports', 'flag', 'Signalements'],
   ['schools', 'megaphone', 'Établissements'],
+  ['billing', 'checkSq', 'Abonnements'],
+  ['campaigns', 'flash', 'Campagnes'],
+  ['offers', 'star', 'Offres et tarifs'],
   ['announce', 'bell', 'Annonces'],
   ['admins', 'shieldCheck', 'Administrateurs'],
   ['account', 'user', 'Mon compte'],
@@ -134,6 +139,11 @@ async function refreshBadge() {
     put('reports', pendingReports, 'var(--danger)');
   } catch {}
   try { const s = await get('/schools?status=pending'); put('schools', s.counts.pending || 0, 'var(--brand)'); } catch {}
+  try {
+    const st = await get('/stats');
+    put('billing', st.planRequests || 0, 'var(--brand)');
+    put('campaigns', st.campaignQueue || 0, 'var(--brand)');
+  } catch {}
 }
 setInterval(() => { if (tok.get() && ME) refreshBadge(); }, 30000);
 
@@ -150,15 +160,22 @@ function route() {
   old.replaceWith(c);
   window.scrollTo(0, 0);
   c.innerHTML = '<div class="empty">Chargement…</div>';
-  const pages = { dashboard, users, classes, reports, schools, announce, admins, account };
+  const pages = { dashboard, users, classes, reports, schools, announce, admins, account, billing: MON.billing, campaigns: CMP.campaigns, offers: MON.offersPage };
   const fn = pages[page] || dashboard;
   if (page === 'users' && id) return userDetail(c, id);
   if (page === 'classes' && id) return classDetail(c, id);
   if (page === 'schools' && id) return schoolDetail(c, id);
+  if (page === 'billing' && id) return MON.billingDetail(c, id);
+  if (page === 'campaigns' && id) return CMP.campaignDetail(c, id);
+  if (page === 'receipt' && id) { $$('.adm-nav a[data-k=billing]').forEach(a => a.classList.add('on')); return MON.receipt(c, id); }
   fn(c);
 }
 addEventListener('hashchange', route);
 const setTitle = (t) => { const e = $('[data-title]'); if (e) e.textContent = t; document.title = `${t} · Scola Admin`; };
+// Contexte partagé avec les modules Abonnements / Campagnes / Offres.
+const CTX = { get: (u) => get(u), post: (u, b) => post(u, b), patch: (u, b) => patch(u, b), setTitle, bindRows: (c) => bindRows(c), refreshBadge: () => refreshBadge() };
+MON.setup(CTX);
+CMP.setup(CTX);
 
 /* ---------------- Tableau de bord ---------------- */
 async function dashboard(c) {
@@ -193,7 +210,9 @@ async function dashboard(c) {
       <section class="panel"><h2>Classes les plus grandes</h2>
         <table class="tbl"><tbody>${s.topClasses.map(k => `<tr data-go="#/classes/${k.id}"><td>${esc(k.name)}<div class="faint" style="font-size:12px">${esc(k.country)}</div></td><td class="num">${num(k.members)}</td></tr>`).join('') || '<tr><td class="faint">Aucune classe</td></tr>'}</tbody></table></section>
     </div>
-    <section class="panel"><h2>Dernières inscriptions</h2><div class="tbl-wrap">${userTable(s.recentUsers)}</div></section>`;
+    <section class="panel"><h2>Dernières inscriptions</h2><div class="tbl-wrap">${userTable(s.recentUsers)}</div></section>
+    <div data-finance></div>`;
+  MON.financePanel($('[data-finance]', c));
   bindRows(c);
   // Infobulle au survol des barres.
   const tip = h('<div class="chart-tip" hidden></div>');
@@ -520,12 +539,13 @@ async function reports(c) {
     $('[data-l]', c).innerHTML = list.length ? list.map(r => `<div class="report ${r.resolved ? 'done' : ''}" data-r="${r.id}">
       <div class="row" style="flex-wrap:wrap"><span class="tag ${r.resolved ? '' : 'red'}">${r.resolved ? 'Traité' : 'À traiter'}</span><span class="tag warn">${esc(r.reason || 'Sans motif')}</span>
         <span class="grow faint" style="font-size:13px">Signalé par <b>${esc(r.byName)}</b> · ${esc(r.className)} · ${esc(relTime(r.at))}</span></div>
-      <p style="margin:10px 0 6px">${r.kind === 'channel' ? `Chaîne signalée : <a href="#/schools/${r.schoolId}">${esc(r.className.replace(/^Orientation · /, ''))}</a>` : `Personne signalée : ${r.userId ? `<a href="#/users/${r.userId}">${esc(r.userName)}</a>${r.userSuspended ? ' <span class="tag red">Suspendu</span>' : ''}` : '—'}`}</p>
+      <p style="margin:10px 0 6px">${r.kind === 'ad' ? `Publicité de <a href="#/schools/${r.schoolId}">${esc(r.className.replace(/^Publicité · /, ''))}</a> — campagne ${esc(r.campaignStatus === 'supprimée' ? 'supprimée' : 'en cours de diffusion ou terminée')}` : r.kind === 'channel' ? `Chaîne signalée : <a href="#/schools/${r.schoolId}">${esc(r.className.replace(/^Orientation · /, ''))}</a>` : `Personne signalée : ${r.userId ? `<a href="#/users/${r.userId}">${esc(r.userName)}</a>${r.userSuspended ? ' <span class="tag red">Suspendu</span>' : ''}` : '—'}`}</p>
       ${r.message ? `<div class="quote" style="margin:6px 0 10px;--qc:var(--danger)"><div class="q"><b>${r.kind === 'channel' ? 'Publication' : 'Message'} du ${esc(fullDate(r.message.at))}${r.messageDeleted ? ' — supprimé' : ''}</b><span>${esc(r.message.text)}</span></div>${r.message.media && /\.(jpe?g|png|webp|gif)$/i.test(r.message.media) ? `<img src="${esc(r.message.media)}" alt="">` : ''}</div>` : ''}
       ${r.resolved ? `<div class="faint" style="font-size:12.5px">Traité par ${esc(r.resolvedByName || '—')}${r.resolvedAt ? ' le ' + esc(fullDate(r.resolvedAt)) : ''}</div>` : ''}
       <div class="actions" style="margin-top:8px">
-        ${r.message && !r.messageDeleted ? `<button class="btn ghost" data-act="${r.kind === 'channel' ? 'delpost' : 'delmsg'}" data-m="${r.message.id}">${r.kind === 'channel' ? 'Supprimer la publication' : 'Supprimer le message'}</button>` : ''}
+        ${r.message && !r.messageDeleted && r.kind !== 'ad' ? `<button class="btn ghost" data-act="${r.kind === 'channel' ? 'delpost' : 'delmsg'}" data-m="${r.message.id}">${r.kind === 'channel' ? 'Supprimer la publication' : 'Supprimer le message'}</button>` : ''}
         ${r.kind === 'channel' && r.schoolId ? `<a class="btn ghost" href="#/schools/${r.schoolId}">Voir l'établissement</a>` : ''}
+        ${r.kind === 'ad' && r.campaignId ? `<a class="btn ghost" href="#/campaigns/${r.campaignId}">Voir la campagne (suspendre)</a>` : ''}
         ${r.userId && !r.userSuspended ? `<button class="btn ghost" data-act="suspend" data-u="${r.userId}">Suspendre l'auteur</button>` : ''}
         ${r.userId ? `<button class="btn ghost" data-act="restrict" data-u="${r.userId}" data-c="${r.classId}">Restreindre dans la classe</button>` : ''}
         <button class="btn ${r.resolved ? 'ghost' : ''}" data-act="${r.resolved ? 'reopen' : 'resolve'}">${r.resolved ? 'Rouvrir' : 'Marquer comme traité'}</button></div></div>`).join('')
@@ -617,6 +637,8 @@ async function schoolDetail(c, id) {
         ${s.activatedAt ? `<dt>Activé le</dt><dd>${esc(fullDate(s.activatedAt))}</dd>` : ''}
         ${s.lastLogin ? `<dt>Dernière connexion</dt><dd>${esc(fullDate(s.lastLogin))}</dd>` : ''}
         ${s.rejectReason ? `<dt>Motif du refus</dt><dd>${esc(s.rejectReason)}</dd>` : ''}
+        ${s.plan ? `<dt>Formule</dt><dd>${esc(s.plan.name)}${s.founder ? ' <span class="tag founder">Fondateur</span>' : ''} · <a href="#/billing/${s.id}">abonnement et paiements</a></dd>` : ''}
+        ${s.verified && !s.verifiedShown ? '<dt>Badge vérifié</dt><dd class="faint">Accordé, mais affiché seulement à partir de la formule Standard.</dd>' : ''}
         <dt>Abonnés</dt><dd>${num(s.followers)}</dd>
         <dt>Publications</dt><dd>${num(s.posts)}</dd>
       </dl></div></section>

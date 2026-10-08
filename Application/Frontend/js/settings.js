@@ -9,6 +9,7 @@ import { WALLPAPERS, wallStyle } from './conversation.js';
 import { openViewer } from './media.js';
 import { DIAL, deviceName } from './auth.js';
 import { pushSupported, enablePush, pushState } from './push.js';
+import { pickCity } from './orientation-plus.js';
 
 let side;
 
@@ -77,7 +78,8 @@ export function openProfile() {
           <div class="card card-pad"><div class="field"><label>Nom</label><div class="edit-line"><span class="grow">${esc(S.me.name)}</span><button class="icon-btn" data-e="name">${icon('edit', 'sm')}</button></div></div>
             <div class="hint">Ce nom est visible par les membres de votre classe.</div></div>
           <div class="card card-pad"><div class="field"><label>Infos</label><div class="edit-line"><span class="grow">${formatText(S.me.about || '—')}</span><button class="icon-btn" data-e="about">${icon('edit', 'sm')}</button></div></div></div>
-          <div class="card card-pad"><div class="field"><label>Établissement</label><div class="edit-line"><span class="grow">${esc(S.me.school || '—')}</span><button class="icon-btn" data-e="school">${icon('edit', 'sm')}</button></div></div></div>
+          <div class="card card-pad"><div class="field"><label>Établissement</label><div class="edit-line"><span class="grow">${esc(S.me.school || '—')}</span><button class="icon-btn" data-e="school">${icon('edit', 'sm')}</button></div></div>
+            <div class="field"><label>Ville <small class="faint">(facultatif)</small></label><div class="edit-line"><span class="grow">${esc(S.me.city || '—')}</span><button class="icon-btn" data-e="city">${icon('edit', 'sm')}</button></div><div class="hint">Sert seulement à te proposer des établissements proches dans Orientation. Ni ta classe ni les établissements ne la voient.</div></div></div>
           <div class="card card-pad"><div class="field"><label>Téléphone</label><div>${esc(S.me.phone)}</div></div></div>
           <div class="card card-pad"><div class="field"><label>Classe</label><div>${esc(S.cls?.name || '')}</div><div class="hint">${esc(S.cls?.cycleLabel || '')} · ${esc(S.cls?.filiere || '')} · ${esc(S.cls?.niveau || '')} — ${esc(S.cls?.country || '')}. La classe est définie à l'inscription et ne peut pas être modifiée.</div></div></div>
           <div class="card card-pad" style="text-align:center"><div class="hint" style="margin-bottom:8px">Mon code QR : un camarade de ma classe peut le scanner pour m'écrire.</div><div data-qr style="width:180px;height:180px;margin:0 auto;background:#fff;border-radius:8px"></div></div>`;
@@ -102,6 +104,7 @@ export function openProfile() {
           if (val !== null) patch('/me', { about: val }).then(setMe).catch(fail);
           return;
         }
+        if (k === 'city') return pickCity();
         const labels = { name: ['Votre nom', 40], school: ['Établissement', 80] };
         const v = await promptBox(labels[k][0], { value: S.me[k] || '', max: labels[k][1] });
         if (v !== null) patch('/me', { [k]: v }).then(setMe).catch(fail);
@@ -303,9 +306,12 @@ function privacyPage() {
           ${row('info', 'Infos', lab(p.about), 'data-a="about"')}
           ${row('phone', 'Numéro de téléphone', lab(p.phone), 'data-a="phone"')}
           ${sw('readReceipts', 'Confirmations de lecture', 'Si désactivées, vous ne verrez pas non plus celles des autres. Toujours actives dans le groupe de classe.', p.readReceipts)}
+          <div class="section-title">Orientation</div>
+          ${sw('personalizedAds', 'Publicités personnalisées', 'Les établissements peuvent payer pour apparaître dans l’onglet Orientation (jamais dans ta classe, tes discussions, tes appels ni tes notifications). Activé : Scola choisit celles qui correspondent à ton niveau, ta filière et ta ville, sans jamais dire aux établissements qui tu es. Désactivé : tu vois seulement des publicités non ciblées, au même emplacement.', p.personalizedAds !== false)}
           <div class="section-title">Contacts bloqués</div>
           ${row('ban', 'Contacts bloqués', `${S.me.blocked.length}`, 'data-a="blocked"')}`;
         $('[data-sw=readReceipts]', body).onchange = (e) => patch('/me/privacy', { readReceipts: e.target.checked }).then(setMe).catch(fail);
+        $('[data-sw=personalizedAds]', body).onchange = (e) => patch('/me/privacy', { personalizedAds: e.target.checked }).then(setMe).catch(fail);
       };
       draw();
       live(body, 'me', draw);

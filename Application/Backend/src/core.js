@@ -21,6 +21,7 @@ function defaultPrivacy() {
     about: 'all',        // all | nobody
     phone: 'all',        // all | nobody (adaptation éducative : masquer son numéro)
     readReceipts: true,  // accusés de lecture (discussions privées)
+    personalizedAds: true, // publicités ciblées dans l'onglet Orientation (sinon : non ciblées seulement)
     status: { mode: 'all', list: [] }, // all | except | only
   };
 }
