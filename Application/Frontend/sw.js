@@ -3,7 +3,7 @@
 // médias déjà vus restent sur l'appareil ; tout est rafraîchi dès le retour du réseau.
 try { importScripts('/config.js'); } catch {}
 const BACKEND = self.SCOLA_BACKEND ? new URL(self.SCOLA_BACKEND).origin : location.origin;
-const VERSION = 'v11';
+const VERSION = 'v12';
 const SHELL = 'scola-shell-' + VERSION;   // code de l'application (HTML, JS, CSS, icônes, stickers)
 const API = 'scola-api';                   // dernières réponses de l'API (lecture seule hors connexion)
 const MEDIA = 'scola-media';               // photos, vocaux, documents déjà ouverts

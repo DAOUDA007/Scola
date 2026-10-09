@@ -205,10 +205,18 @@ const CTX = {
 for (const m of [OFFRE, CAMP, STATS, RAPP]) m.setup(CTX);
 
 // Bandeau d'échéance (rappels J-60, J-30, J-7, période de grâce) en haut de toutes les pages.
+// Avertissements de l'administration non encore lus : en tête de toutes les pages.
+let NOTICES = [];
 function drawBanner() {
   const el = $('[data-banner]');
-  if (el) el.innerHTML = OFFRE.bannerHTML(ME);
+  if (!el) return;
+  el.innerHTML = NOTICES.filter(n => !n.readAt).map(n => `<div class="et-banner danger" data-notice="${esc(n.id)}">${icon('flag', 'sm')}<span class="grow"><b>Avertissement de l’administration Scola</b> · ${esc(fullDate(n.at))}<br>${esc(n.text)}</span><button class="btn" data-notice-ok>J’ai compris</button></div>`).join('') + OFFRE.bannerHTML(ME);
+  el.querySelectorAll('[data-notice-ok]').forEach(b => (b.onclick = async () => {
+    const id = b.closest('[data-notice]').dataset.notice;
+    try { await post(`/notices/${id}/read`); NOTICES = NOTICES.map(n => (n.id === id ? { ...n, readAt: Date.now() } : n)); drawBanner(); } catch (e) { fail(e); }
+  }));
 }
+const loadNotices = () => get('/notices').then(l => { NOTICES = l; drawBanner(); }).catch(() => {});
 
 async function start() {
   try { ME = await get('/me'); } catch { tok.clear(); return publicPage(); }
@@ -254,6 +262,7 @@ function route() {
   if (!NAV.some(n => n[0] === page)) { location.hash = '#/tableau'; return; }
   drawBanner();
   get('/me').then(m => { ME = m; drawBrand(); drawBanner(); }).catch(() => {});
+  loadNotices();
   $$('.et-links a[data-k]').forEach(a => a.classList.toggle('on', a.dataset.k === page));
   const cur = NAV.find(n => n[0] === page);
   $('[data-current]').textContent = cur[2];

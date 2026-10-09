@@ -18,6 +18,7 @@ const push = backendRequire('./src/push');
 const O = backendRequire('./src/orientation');
 const mail = backendRequire('./src/mail');
 const OF = backendRequire('./src/offers');
+const INBOX = backendRequire('./src/inbox');
 const { data, save } = C;
 
 const router = express.Router();
@@ -475,14 +476,19 @@ router.delete('/messages/:id', (req, res) => {
 
 /* ---------------- Annonces ---------------- */
 
+// Annonce : dans la boîte « Annonces » de chaque élève concerné, et en carte dans les groupes de classe.
 router.post('/announce', (req, res) => {
-  const text = String(req.body.text || '').trim().slice(0, 4000);
-  if (!text) throw httpError(400, 'Le texte de l\'annonce est vide.');
-  const ids = req.body.classIds === 'all' ? Object.keys(data.classes) : (req.body.classIds || []).filter(id => data.classes[id]);
-  if (!ids.length) throw httpError(400, 'Choisissez au moins une classe.');
-  for (const id of ids) push.notifyMessage(C.systemMessage(id, text, { meta: { announce: true, by: req.admin.name } }));
-  res.json({ ok: true, sent: ids.length });
+  const r = INBOX.publish(req.admin, req.body.text, req.body.classIds);
+  res.json({ ok: true, sent: r.sent, id: r.announcement.id });
 });
+router.get('/announcements', (req, res) => res.json(INBOX.adminList()));
+router.delete('/announcements/:id', (req, res) => { INBOX.remove(req.params.id); res.json({ ok: true }); });
+
+/* ---------------- Avertissements (après un signalement) ---------------- */
+
+router.get('/warnings/default', (req, res) => res.json({ text: INBOX.DEFAULT_WARNING }));
+router.post('/users/:id/warn', (req, res) => res.json(INBOX.warn(req.admin, { userId: req.params.id, text: req.body.text, reportId: req.body.reportId })));
+router.post('/schools/:id/warn', (req, res) => res.json(INBOX.warn(req.admin, { schoolId: req.params.id, text: req.body.text, reportId: req.body.reportId })));
 
 /* ---------------- Signalements ---------------- */
 
@@ -500,6 +506,7 @@ router.get('/reports', (req, res) => {
     userSuspended: !!data.users[r.userId]?.suspended,
     messageDeleted: r.message ? (r.kind === 'ad' ? false : r.kind === 'channel' ? !O.findPost(r.message.id).p : !!C.findMessage(r.message.id)?.deletedForAll) : false,
     resolvedByName: r.resolvedBy ? (data.admins[r.resolvedBy]?.name || '—') : null,
+    warnedByName: r.warnedBy ? (data.admins[r.warnedBy]?.name || '—') : null,
   })));
 });
 

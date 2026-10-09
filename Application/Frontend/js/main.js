@@ -7,6 +7,7 @@ import { nav } from './nav.js';
 import { startAuth } from './auth.js';
 import * as chatlist from './chatlist.js';
 import * as outbox from './outbox.js';
+import { loadInbox, INBOX } from './inbox.js';
 import * as conversation from './conversation.js';
 import * as orientation from './orientation.js';
 import * as calls from './calls.js';
@@ -99,15 +100,16 @@ async function loadApp() {
   const ori = params.get('orientation'), inq = params.get('inquiry');
   if (ori) { setTab('orientation'); orientation.openChannel(ori, { post: params.get('post') || undefined }); }
   else if (inq) { setTab('orientation'); orientation.openInquiry(inq); }
-  if (q || u || ori || inq || params.get('join')) history.replaceState(null, '', '/');
+  if (q || u || ori || inq || params.get('join') || params.get('inbox')) history.replaceState(null, '', '/');
   orientation.loadOrientation();
+  loadInbox().then(() => { if (params.get('inbox')) { setTab('chats'); nav.openInbox?.(); } });
   syncPush().then(() => emit('push'));
 }
 
 nav.refresh = async () => {
   const b = await get('/bootstrap');
   applyBootstrap(b);
-  emit('chats'); emit('calls'); orientation.loadOrientation(); emit('class'); emit('members');
+  emit('chats'); emit('calls'); orientation.loadOrientation(); loadInbox(); emit('class'); emit('members');
   if (S.current) emit('chat:reload', S.current);
 };
 
@@ -229,6 +231,14 @@ function connect() {
   });
   socket.on('disconnect', () => { wasDisconnected = true; netBar(); });
   socket.on('session:revoked', () => logout(true));
+  // Annonce ou avertissement de l'administration : compteur mis à jour en direct.
+  socket.on('inbox:new', (d) => {
+    loadInbox().then(() => {
+      sound.message();
+      if (document.visibilityState === 'visible') banner({ title: d?.warning ? "Avertissement de l'administration" : "Nouvelle annonce de l'administration", text: INBOX.items[0]?.text || '', entity: { id: 'scola-admin', name: 'Administration Scola' }, onClick: () => { setTab('chats'); nav.openInbox?.(); } });
+    });
+  });
+  socket.on('inbox:remove', () => loadInbox());
 
   socket.on('msg:new', async (m) => {
     let chat = S.chats.get(m.chatId);

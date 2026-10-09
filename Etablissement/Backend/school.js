@@ -434,6 +434,16 @@ router.get('/reports', (req, res) => {
 router.get('/reports/monthly', (req, res) => res.json(RP.monthly(req.school, req.query.m)));
 router.get('/reports/annual', (req, res) => res.json(RP.annual(req.school)));
 
+/* Avertissements de l'administration (après un signalement). */
+router.get('/notices', (req, res) => res.json(backendRequire('./src/inbox').noticesOf({ schoolId: req.school.id })));
+router.post('/notices/:id/read', (req, res) => {
+  const n = data.notices?.[req.params.id];
+  if (!n || n.schoolId !== req.school.id) throw httpError(404, 'Avertissement introuvable.');
+  n.readAt = C.now();
+  save();
+  res.json({ ok: true });
+});
+
 /* Messages des élèves (l'établissement ne peut que répondre, jamais écrire le premier). */
 function myInquiry(req) {
   const q = data.inquiries[req.params.id];

@@ -4,6 +4,7 @@ import { get, post, patch, del } from './api.js';
 import { S, on, emit, user, chatTitle, chatEntity, isMuted, preview, sortedChats, draft, displayName } from './state.js';
 import { toast, fail, ctxMenu, confirmBox, choose, pickMembers, pushPage, promptBox, modal, touchActive } from './ui.js';
 import { nav } from './nav.js';
+import * as INB from './inbox.js';
 import { pushSupported, enablePush } from './push.js';
 
 let filter = 'all';
@@ -67,6 +68,7 @@ export function chatItem(chat, { active = false } = {}) {
 export function render(side) {
   side.innerHTML = `
     <div class="panel-head"><h1>Discussions</h1>
+      <button class="icon-btn inbox-btn" data-inbox title="Annonces de l'administration" aria-label="Annonces">${icon('megaphone')}<span data-inbox-badge></span></button>
       <button class="icon-btn" data-new title="Nouvelle discussion">${icon('edit')}</button>
       <button class="icon-btn" data-menu title="Menu">${icon('more')}</button></div>
     <div class="search-bar"><div class="search-box">${icon('search', 'sm')}<input type="search" placeholder="Rechercher ou démarrer une discussion" data-q></div></div>
@@ -97,6 +99,12 @@ export function render(side) {
   });
   bindList(list);
   $('[data-new]', side).onclick = () => newChatPage(side);
+  // Boîte « Annonces » : compteur de non-lus et ouverture.
+  const drawInbox = () => { $('[data-inbox-badge]', side).innerHTML = INB.badgeHTML(); };
+  drawInbox();
+  live(side, 'inbox', drawInbox);
+  $('[data-inbox]', side).onclick = () => INB.openInbox(side);
+  nav.openInbox = () => INB.openInbox(side);
   $('[data-menu]', side).onclick = (e) => ctxMenu(e.currentTarget, [
     { icon: 'megaphone', label: 'Nouvelle liste de diffusion', onClick: () => newBroadcast() },
     { icon: 'star', label: 'Messages importants', onClick: () => openStarred(side) },
