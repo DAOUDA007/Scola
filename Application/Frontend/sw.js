@@ -1,7 +1,9 @@
 // Service worker : installation de l'application, fonctionnement hors connexion, notifications.
 // Comme WhatsApp, Scola s'ouvre sans réseau : l'application, les dernières discussions et les
 // médias déjà vus restent sur l'appareil ; tout est rafraîchi dès le retour du réseau.
-const VERSION = 'v10';
+try { importScripts('/config.js'); } catch {}
+const BACKEND = self.SCOLA_BACKEND ? new URL(self.SCOLA_BACKEND).origin : location.origin;
+const VERSION = 'v11';
 const SHELL = 'scola-shell-' + VERSION;   // code de l'application (HTML, JS, CSS, icônes, stickers)
 const API = 'scola-api';                   // dernières réponses de l'API (lecture seule hors connexion)
 const MEDIA = 'scola-media';               // photos, vocaux, documents déjà ouverts
@@ -10,7 +12,7 @@ const MEDIA_MAX = 400;
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
     const c = await caches.open(SHELL);
-    let files = ['/', '/css/app.css', '/icons/icon.svg', '/icons/icon-192.png', '/manifest.webmanifest', '/socket.io/socket.io.js'];
+    let files = ['/', '/config.js', '/css/app.css', '/icons/icon.svg', '/icons/icon-192.png', '/manifest.webmanifest', '/socket.io/socket.io.js'];
     try { files = [...new Set([...files, ...(await (await fetch('/offline-files.json', { cache: 'no-store' })).json())])]; } catch {}
     // Un fichier introuvable ne doit pas empêcher l'installation.
     await Promise.all(files.map(f => fetch(f, { cache: 'no-store' }).then(r => (r.ok ? c.put(f, r) : null)).catch(() => {})));
@@ -38,7 +40,7 @@ async function trimMedia() {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   const url = new URL(req.url);
-  if (req.method !== 'GET' || url.origin !== location.origin) return;
+  if (req.method !== 'GET' || (url.origin !== location.origin && url.origin !== BACKEND)) return;
   // Administration et espace établissement : applications distinctes, jamais interceptées.
   if (/^\/(admin|etablissement)(\/|$)/i.test(url.pathname)) return;
   const p = url.pathname;

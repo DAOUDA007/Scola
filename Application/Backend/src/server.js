@@ -27,6 +27,16 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 
+// Site hébergé ailleurs (ex. Vercel) : l'API accepte ses requêtes. L'identification se fait par
+// jeton dans l'en-tête Authorization (jamais par cookie), ce qui rend cette ouverture sans risque.
+app.use('/api', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Scola-Offline');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  next();
+});
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
@@ -102,7 +112,7 @@ if (process.env.SSL_KEY && process.env.SSL_CERT) {
   server = http.createServer(app);
 }
 
-const io = new Server(server, { maxHttpBufferSize: 1e6, pingInterval: 20000 });
+const io = new Server(server, { maxHttpBufferSize: 1e6, pingInterval: 20000, cors: { origin: true } });
 realtime(io);
 
 server.on('error', (err) => {

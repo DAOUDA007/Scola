@@ -218,7 +218,8 @@ addEventListener('offline', () => netBar());
 function connect() {
   // Script Socket.IO indisponible (hors connexion au tout premier lancement) : on réessaie plus tard.
   if (typeof io === 'undefined') { wasDisconnected = true; setTimeout(connect, 5000); return; }
-  const socket = io({ auth: { token: token.get() }, transports: ['websocket', 'polling'] });
+  // Sur Vercel, le temps réel se connecte directement au serveur Scola (Render).
+  const socket = io(self.SCOLA_BACKEND || undefined, { auth: { token: token.get() }, transports: ['websocket', 'polling'] });
   S.socket = socket;
   socket.on('connect_error', (e) => { if (e.message === 'auth') logout(true); });
   socket.on('connect', async () => {

@@ -4,7 +4,8 @@
   "private": true,
   "description": "Scola — la messagerie des élèves et étudiants, réunis par classe (filière + niveau).",
   "scripts": {
-    "postinstall": "cd Application/Backend && npm install",
+    "postinstall": "node -e \"process.exit(process.env.VERCEL ? 0 : 1)\" || (cd Application/Backend && npm install)",
+    "build": "node scripts/vercel-build.js",
     "start": "cd Application/Backend && npm start",
     "dev": "cd Application/Backend && npm run dev",
     "admin:reset": "node Admin/Backend/reset-admin.js"

@@ -146,6 +146,24 @@ automatiquement ; si une base locale `db.json` existe au premier lancement, elle
 Mot de passe administrateur perdu sur Render : depuis votre ordinateur, définissez la même
 `DATABASE_URL` puis lancez `npm run admin:reset -- votre@email.com`, et redémarrez le service.
 
+### Site sur Vercel (le serveur reste sur Render)
+
+Vercel n'héberge que des sites et de courtes fonctions : il ne peut pas faire tourner le serveur de Scola
+(temps réel Socket.IO, appels, données, fichiers). On peut en revanche y mettre **le site**, le serveur
+restant sur Render : les visiteurs utilisent l'adresse Vercel et tout fonctionne.
+
+1. Sur Render, le service Scola tourne comme décrit ci-dessus (avec `DATABASE_URL`).
+2. Sur Vercel : *Add New › Project*, importez le dépôt GitHub, laissez le dossier racine du dépôt et le
+   préréglage *Other* (le fichier `vercel.json` fournit les commandes).
+3. Dans *Settings › Environment Variables* de Vercel : `SCOLA_BACKEND_URL` = l'adresse du service Render
+   (ex. `https://scola-admin.onrender.com`). Puis redéployez.
+4. Si l'adresse Render n'est pas `https://scola-admin.onrender.com`, remplacez-la aussi dans `vercel.json`
+   (relais de `/api`, `/media`, `/admin`, `/etablissement`…).
+5. Sur Render, mettez `PUBLIC_URL` = l'adresse Vercel (liens des e-mails).
+
+Le site Vercel appelle directement le serveur Render (API et temps réel) ; `/admin` et `/etablissement`
+sont relayés vers Render. Si Render est en veille, la première ouverture prend jusqu'à une minute.
+
 ## Fonctionnalités
 
 **Compte et connexion** — numéro de téléphone + code SMS, vérification en deux étapes (PIN), connexion

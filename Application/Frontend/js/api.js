@@ -1,5 +1,7 @@
 // Accès à l'API REST du serveur Scola.
 const KEY = 'scola.token';
+// Adresse du serveur (config.js) : vide = même adresse que le site.
+export const BACKEND = (typeof self !== 'undefined' && self.SCOLA_BACKEND) || '';
 
 export const token = {
   get() { try { return localStorage.getItem(KEY); } catch { return null; } },
@@ -17,7 +19,7 @@ export async function api(method, url, body) {
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   let r;
   try {
-    r = await fetch('/api' + url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+    r = await fetch(BACKEND + '/api' + url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
   } catch {
     const e = new Error('Pas de connexion Internet. Réessayez quand le réseau revient.');
     e.offline = true;
@@ -46,7 +48,7 @@ export function upload(file, onProgress = () => {}, name) {
     const fd = new FormData();
     fd.append('file', file, name || file.name || 'fichier');
     const x = new XMLHttpRequest();
-    x.open('POST', '/api/upload');
+    x.open('POST', BACKEND + '/api/upload');
     const t = token.get();
     if (t) x.setRequestHeader('Authorization', 'Bearer ' + t);
     x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
@@ -62,7 +64,7 @@ export function upload(file, onProgress = () => {}, name) {
 
 // Téléchargement authentifié (exports).
 export async function downloadAuth(url, fallbackName) {
-  const r = await fetch('/api' + url, { headers: { Authorization: 'Bearer ' + token.get() } });
+  const r = await fetch(BACKEND + '/api' + url, { headers: { Authorization: 'Bearer ' + token.get() } });
   if (!r.ok) throw new Error('Téléchargement impossible.');
   const cd = r.headers.get('content-disposition') || '';
   const m = /filename\*=UTF-8''([^;]+)/i.exec(cd) || /filename="([^"]+)"/i.exec(cd);

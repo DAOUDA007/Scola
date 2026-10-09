@@ -1,0 +1,68 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "echo Aucune dependance a installer pour le site",
+  "buildCommand": "npm run build",
+  "outputDirectory": "Application/Frontend",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://scola-admin.onrender.com/api/:path*"
+    },
+    {
+      "source": "/media/:path*",
+      "destination": "https://scola-admin.onrender.com/media/:path*"
+    },
+    {
+      "source": "/socket.io/:path*",
+      "destination": "https://scola-admin.onrender.com/socket.io/:path*"
+    },
+    {
+      "source": "/vendor/:path*",
+      "destination": "https://scola-admin.onrender.com/vendor/:path*"
+    },
+    {
+      "source": "/offline-files.json",
+      "destination": "https://scola-admin.onrender.com/offline-files.json"
+    },
+    {
+      "source": "/admin",
+      "destination": "https://scola-admin.onrender.com/admin/"
+    },
+    {
+      "source": "/admin/:path*",
+      "destination": "https://scola-admin.onrender.com/admin/:path*"
+    },
+    {
+      "source": "/etablissement",
+      "destination": "https://scola-admin.onrender.com/etablissement/"
+    },
+    {
+      "source": "/etablissement/:path*",
+      "destination": "https://scola-admin.onrender.com/etablissement/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
+    },
+    {
+      "source": "/config.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
+    }
+  ]
+}
