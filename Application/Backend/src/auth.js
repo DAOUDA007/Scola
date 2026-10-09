@@ -88,8 +88,19 @@ router.get('/invite/:code', (req, res) => {
   res.json({ name: cls.name, icon: cls.icon, country: cls.country, cycle: cls.cycle, filiere: cls.filiere, niveau: cls.niveau, members: cls.memberIds.length, description: cls.description });
 });
 
+// Numéro déjà déclaré par un établissement (demande ou compte) : il ne peut pas servir à créer un
+// compte élève ni rejoindre une classe. Comparaison sur les 8 derniers chiffres (indicatif facultatif).
+const digits8 = (p) => String(p || '').replace(/\D/g, '').slice(-8);
+function isSchoolPhone(phone) {
+  const d = digits8(phone);
+  return d.length === 8 && Object.values(data.schools || {}).some(s => s.status !== 'rejected' && digits8(s.phone) === d);
+}
+
 router.post('/auth/request-otp', async (req, res) => {
   const phone = normPhone(req.body.phone);
+  if (!data.phones[phone] && isSchoolPhone(phone)) {
+    throw httpError(403, 'Ce numéro est celui d\'un établissement inscrit sur Scola. Les établissements n\'ont pas de compte élève : utilisez l\'Espace Établissements.');
+  }
   const prev = data.otps[phone];
   if (prev && prev.sentAt > C.now() - 30_000) throw httpError(429, 'Patientez 30 secondes avant de redemander un code.');
   const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');

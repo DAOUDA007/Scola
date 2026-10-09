@@ -25,7 +25,24 @@ export async function startAuth(el, onDone) {
   catalog = await get('/catalog');
   const code = new URLSearchParams(location.search).get('join');
   if (code) invite = await get('/invite/' + encodeURIComponent(code)).catch(() => null);
-  welcome();
+  // Lien d'invitation d'une classe : c'est forcément un élève.
+  if (invite) return welcome();
+  chooseProfile();
+}
+
+/* ---------- Qui êtes-vous ? ----------
+   Élèves et établissements sont séparés dès le départ : un établissement ne passe jamais par le
+   numéro de téléphone ni par le choix d'une classe, il crée son compte dans son propre espace. */
+function chooseProfile() {
+  const card = shell(`
+    <h1>Bienvenue sur Scola</h1>
+    <p class="muted" style="margin:0 0 18px">Qui êtes-vous ?</p>
+    <div class="profile-choice">
+      <button class="choice-card" data-student>${icon('cap', 'lg')}<span><b>Élève ou étudiant</b><small>Rejoins le groupe de ta filière et de ton niveau, discute avec ta classe, suis les établissements.</small></span>${icon('chevR', 'sm')}</button>
+      <a class="choice-card" href="/etablissement/">${icon('megaphone', 'lg')}<span><b>Établissement</b><small>École, université, lycée, centre de formation : créez ou ouvrez le compte de votre établissement.</small></span>${icon('chevR', 'sm')}</a>
+    </div>
+    <p class="faint" style="font-size:12.5px;margin:16px 0 0">Les établissements n'intègrent aucun groupe de classe : ils disposent de leur propre espace, validé par l'administration de Scola.</p>`, true);
+  $('[data-student]', card).onclick = () => welcome();
 }
 
 function shell(inner, narrow = false) {
@@ -57,7 +74,8 @@ function welcome() {
       <h1>Bienvenue sur Scola</h1>
       <p class="muted" style="margin:0 0 18px">La messagerie qui réunit <b>tous les élèves et étudiants de ta filière et de ton niveau</b> dans un seul groupe : partagez cours, devoirs, annonces, et discutez comme sur WhatsApp.</p>
       ${invite ? `<div class="class-preview">${icon('cap', 'lg')}<div><small>Invitation à rejoindre</small><b>${esc(invite.name)}</b><small>${esc(invite.country)} · ${invite.members} membre${invite.members > 1 ? 's' : ''}</small></div></div>` : ''}
-      <button class="btn" data-phone style="margin:8px 0 26px">${icon('phone', 'sm')} Continuer avec mon numéro</button>
+      <button class="btn" data-phone style="margin:8px 0 10px">${icon('phone', 'sm')} Continuer avec mon numéro</button>
+      <p class="faint" style="font-size:12.5px;margin:0 0 22px">Espace réservé aux élèves et étudiants. ${invite ? '' : '<a href="#" data-back-profile>← Changer de profil</a> · '}<a href="/etablissement/">Vous êtes un établissement ?</a></p>
       <h3 style="margin:0 0 6px;font-weight:500">Déjà connecté sur un autre appareil ?</h3>
       <ol>
         <li>Ouvre Scola sur ton téléphone</li>
@@ -71,6 +89,7 @@ function welcome() {
       <p class="faint" style="font-size:13px;margin-top:10px">Code : <b data-code style="letter-spacing:2px">—</b></p>
     </div>`);
   $('[data-phone]', card).onclick = () => phoneStep();
+  $('[data-back-profile]', card)?.addEventListener('click', (e) => { e.preventDefault(); chooseProfile(); });
   startLink(card);
 }
 
@@ -249,7 +268,7 @@ function classStep() {
       <input class="input" data-other placeholder="Saisis ta filière" maxlength="80" hidden></div>
     <div class="field"><label>Niveau</label><select class="select" data-k="niveau"></select></div>
     <div data-preview></div>
-    <label class="choice" style="font-size:13.5px"><input type="checkbox" data-rules> <span>J'accepte la charte Scola : respect, entraide, pas de fraude aux examens ni de contenus inappropriés. <b>Je comprends que ma classe ne pourra plus être changée.</b></span></label>
+    <label class="choice" style="font-size:13.5px"><input type="checkbox" data-rules> <span>Je suis élève ou étudiant et j'accepte la charte Scola : respect, entraide, pas de fraude aux examens ni de contenus inappropriés. <b>Je comprends que ma classe ne pourra plus être changée.</b></span></label>
     <div class="error-text" data-err></div>
     <button class="btn block" data-go>Rejoindre ma classe</button>
     <p style="text-align:center"><button class="btn text" data-back>Retour</button></p>`, true);

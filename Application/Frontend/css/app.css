@@ -881,3 +881,13 @@ select option:disabled { color: var(--text-3); }
 .inbox-card.warning header { color: var(--danger); }
 .inbox-text { margin: 8px 0; font-size: 15px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .inbox-card footer { font-size: 12px; color: var(--text-3); }
+
+/* Premier écran : choix du profil (élève / établissement) */
+.profile-choice { display: grid; gap: 12px; }
+.choice-card { display: flex; align-items: center; gap: 14px; width: 100%; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--text); text-align: left; text-decoration: none; font: inherit; cursor: pointer; transition: border-color .15s, background .15s; }
+.choice-card:hover, .choice-card:focus-visible { border-color: var(--brand); background: var(--brand-soft); outline: none; }
+.choice-card > svg.i:first-child { color: var(--brand); flex: none; }
+.choice-card > svg.i:last-child { color: var(--text-3); flex: none; }
+.choice-card span { flex: 1; min-width: 0; }
+.choice-card b { display: block; font-size: 16px; }
+.choice-card small { display: block; color: var(--text-2); font-size: 13px; line-height: 1.45; margin-top: 2px; }

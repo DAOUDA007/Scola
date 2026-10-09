@@ -50,7 +50,7 @@ const STATUS = { pending: 'Demande en cours d\'examen', code_sent: 'Code d\'acti
 /* ======================= Pages publiques ======================= */
 function shell(inner, wide = false) {
   timers.forEach(clearInterval); timers = [];
-  root.innerHTML = `<div class="et-public"><div class="et-top"><div class="logo"></div><div>Scola Établissements<small>Chaînes d'orientation</small></div><a href="/">Application des élèves →</a></div>
+  root.innerHTML = `<div class="et-public"><div class="et-top"><div class="logo"></div><div>Scola Établissements<small>Chaînes d'orientation</small></div><a href="/">Vous êtes élève ? Application des élèves →</a></div>
     <div class="et-card ${wide ? 'wide' : ''}">${inner}</div></div>`;
   window.scrollTo(0, 0);
   return $('.et-card', root);
