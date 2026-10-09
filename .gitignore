@@ -1,3 +1,6 @@
 node_modules/
 Application/Backend/data/
 *.log
+# Copies générées par scripts/vercel-build.js
+Application/Frontend/admin/
+Application/Frontend/etablissement/

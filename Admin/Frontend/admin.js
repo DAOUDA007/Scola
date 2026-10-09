@@ -7,6 +7,8 @@ import * as CMP from './campagnes.js';
 
 const root = $('#root');
 const TK = 'scola.admin.token';
+// Adresse du serveur Scola (config.js) : vide = même adresse que le site.
+const BK = self.SCOLA_BACKEND || '';
 const tok = {
   get() { try { return localStorage.getItem(TK); } catch { return null; } },
   set(t) { try { localStorage.setItem(TK, t); } catch {} },
@@ -21,7 +23,7 @@ async function A(method, url, body) {
   const headers = { Authorization: 'Bearer ' + (tok.get() || '') };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   let r;
-  try { r = await fetch('/api/admin' + url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined }); }
+  try { r = await fetch(BK + '/api/admin' + url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined }); }
   catch { throw new Error('Connexion au serveur impossible.'); }
   const d = await r.json().catch(() => ({}));
   if (r.status === 401 && url !== '/login') { tok.clear(); showLogin(d.error); throw new Error(d.error || 'Session expirée.'); }
@@ -35,7 +37,7 @@ const del = (u) => A('DELETE', u);
 async function uploadFile(file) {
   const fd = new FormData();
   fd.append('file', file);
-  const r = await fetch('/api/admin/upload', { method: 'POST', headers: { Authorization: 'Bearer ' + tok.get() }, body: fd });
+  const r = await fetch(BK + '/api/admin/upload', { method: 'POST', headers: { Authorization: 'Bearer ' + tok.get() }, body: fd });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || 'Échec de l\'envoi.');
   return d;

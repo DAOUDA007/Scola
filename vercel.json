@@ -26,19 +26,27 @@
     },
     {
       "source": "/admin",
-      "destination": "https://scola-admin.onrender.com/admin/"
+      "destination": "/admin/index.html"
+    },
+    {
+      "source": "/admin/",
+      "destination": "/admin/index.html"
     },
     {
       "source": "/admin/:path*",
-      "destination": "https://scola-admin.onrender.com/admin/:path*"
+      "destination": "/admin/index.html"
     },
     {
       "source": "/etablissement",
-      "destination": "https://scola-admin.onrender.com/etablissement/"
+      "destination": "/etablissement/index.html"
+    },
+    {
+      "source": "/etablissement/",
+      "destination": "/etablissement/index.html"
     },
     {
       "source": "/etablissement/:path*",
-      "destination": "https://scola-admin.onrender.com/etablissement/:path*"
+      "destination": "/etablissement/index.html"
     },
     {
       "source": "/(.*)",

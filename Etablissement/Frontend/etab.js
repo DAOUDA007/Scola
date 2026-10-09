@@ -10,6 +10,8 @@ import * as RAPP from '/etablissement/rapports.js';
 
 const root = $('#root');
 const TK = 'scola.etab.token';
+// Adresse du serveur Scola (config.js) : vide = même adresse que le site.
+const BK = self.SCOLA_BACKEND || '';
 const tok = {
   get() { try { return localStorage.getItem(TK); } catch { return null; } },
   set(t) { try { localStorage.setItem(TK, t); } catch {} },
@@ -22,7 +24,7 @@ async function A(method, url, body) {
   if (tok.get()) headers.Authorization = 'Bearer ' + tok.get();
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   let r;
-  try { r = await fetch('/api/school' + url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined }); }
+  try { r = await fetch(BK + '/api/school' + url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined }); }
   catch { throw new Error('Connexion au serveur impossible.'); }
   const d = await r.json().catch(() => ({}));
   if (r.status === 401 && ME) { tok.clear(); ME = null; location.hash = '#connexion'; publicPage(); }
@@ -36,7 +38,7 @@ function uploadFile(file, url = '/upload', onProgress = () => {}) {
     const fd = new FormData();
     fd.append('file', file, file.name || 'fichier');
     const x = new XMLHttpRequest();
-    x.open('POST', '/api/school' + url);
+    x.open('POST', BK + '/api/school' + url);
     if (tok.get()) x.setRequestHeader('Authorization', 'Bearer ' + tok.get());
     x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
     x.onload = () => { let d = {}; try { d = JSON.parse(x.responseText); } catch {} x.status < 300 ? resolve(d) : reject(new Error(d.error || 'Échec de l\'envoi.')); };
@@ -463,7 +465,7 @@ function account(c) {
 (async () => {
   try {
     TYPES = await get('/types');
-    const cat = await (await fetch('/api/catalog')).json();
+    const cat = await (await fetch(BK + '/api/catalog')).json();
     COUNTRIES = cat.countries || [];
     CYCLES = cat.cycles || [];
   } catch {}
