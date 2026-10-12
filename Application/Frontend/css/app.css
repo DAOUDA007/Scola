@@ -891,3 +891,7 @@ select option:disabled { color: var(--text-3); }
 .choice-card span { flex: 1; min-width: 0; }
 .choice-card b { display: block; font-size: 16px; }
 .choice-card small { display: block; color: var(--text-2); font-size: 13px; line-height: 1.45; margin-top: 2px; }
+
+/* Champ mot de passe avec bouton « afficher » */
+.pw-row { display: flex; align-items: center; gap: 6px; }
+.pw-row .input { flex: 1; }

@@ -129,6 +129,28 @@ async function saveAvatar(file) {
   } catch (e) { fail(e); }
 }
 
+/* ---------------- Mot de passe ---------------- */
+// Création (ancien compte sans mot de passe), changement, ou remplacement du mot de passe provisoire.
+export function passwordFlow({ force = false } = {}) {
+  const first = !S.me.hasPassword, temp = S.me.mustChangePassword;
+  const body = h(`<div>
+    <p class="muted" style="margin-top:0;font-size:14px">${temp ? 'Vous utilisez un mot de passe provisoire donné par l\'administration : choisissez votre propre mot de passe.'
+      : first ? 'Créez votre mot de passe : il vous permettra de vous reconnecter à Scola sur n\'importe quel téléphone, avec votre numéro.' : 'Changez votre mot de passe Scola.'}</p>
+    ${!first && !temp ? '<div class="field"><label>Mot de passe actuel</label><input class="input" type="password" data-cur autocomplete="current-password"></div>' : ''}
+    <div class="field"><label>Nouveau mot de passe (8 caractères minimum)</label><input class="input" type="password" data-new autocomplete="new-password"></div>
+    <div class="field"><label>Confirmez</label><input class="input" type="password" data-new2 autocomplete="new-password"></div></div>`);
+  modal({
+    title: first ? 'Créer mon mot de passe' : 'Mot de passe', body, closable: !(force && temp),
+    buttons: [...(force && temp ? [] : [{ label: force ? 'Plus tard' : 'Annuler' }]), { label: 'Enregistrer', cls: 'text', onClick: async () => {
+      const n = $('[data-new]', body).value;
+      if (n !== $('[data-new2]', body).value) throw new Error('Les deux mots de passe ne correspondent pas.');
+      await patch('/me/password', { currentPassword: $('[data-cur]', body)?.value, password: n });
+      setMe({ ...S.me, hasPassword: true, mustChangePassword: false });
+      toast('Mot de passe enregistré');
+    } }],
+  });
+}
+
 /* ---------------- Compte ---------------- */
 function accountPage() {
   pushPage(side, {
@@ -136,6 +158,7 @@ function accountPage() {
     render: (body) => {
       const draw = () => {
         body.innerHTML = `
+          ${row('lock', 'Mot de passe', S.me.hasPassword ? 'Pour vous reconnecter sur un autre téléphone' : 'Pas encore créé : créez-le pour pouvoir vous reconnecter', 'data-a="password"', S.me.hasPassword ? '' : 'warn')}
           ${row('shieldCheck', 'Vérification en deux étapes', S.me.hasPin ? 'Activée — un code PIN est demandé à chaque nouvelle connexion' : 'Désactivée', 'data-a="pin"')}
           ${row('phone', 'Changer de numéro', esc(S.me.phone), 'data-a="number"')}
           ${row('laptop', 'Appareils connectés', '', 'data-a="devices"')}
@@ -147,6 +170,7 @@ function accountPage() {
       body.onclick = async (e) => {
         const a = e.target.closest('[data-a]')?.dataset.a;
         try {
+          if (a === 'password') passwordFlow();
           if (a === 'pin') await pinFlow();
           if (a === 'number') await changeNumber();
           if (a === 'devices') openDevices();
@@ -183,7 +207,9 @@ async function pinFlow() {
 async function changeNumber() {
   const body = h(`<div><p class="muted" style="font-size:14px">Vos discussions, votre classe et vos paramètres seront conservés.</p>
     <div class="field"><label>Nouveau numéro</label><div class="phone-row"><select class="select" data-c>${Object.entries(DIAL).map(([c, d]) => `<option value="${d}" ${c === S.cls?.country ? 'selected' : ''}>${esc(c)} ${d}</option>`).join('')}</select><input class="input" data-n inputmode="tel" placeholder="07 00 00 00 00"></div></div>
-    <div data-step2 hidden><div class="dev-code" data-dev hidden></div><div class="field"><label>Code reçu par SMS</label><input class="input" data-code inputmode="numeric" maxlength="6"></div></div></div>`);
+    <div data-step2 hidden><div class="field" data-sms-f hidden><label>Code reçu par SMS au nouveau numéro</label><input class="input" data-sms inputmode="numeric" maxlength="6"></div>
+      <div class="field"><label data-l2>Code reçu par SMS</label><input class="input" data-code inputmode="numeric" maxlength="6"></div></div></div>`);
+  let pwMode = false, sms = false;
   let phone = null;
   modal({
     title: 'Changer de numéro', body,
@@ -191,11 +217,16 @@ async function changeNumber() {
       if (!phone) {
         phone = $('[data-c]', body).value + $('[data-n]', body).value.replace(/\D/g, '');
         const r = await post('/auth/request-otp', { phone });
+        if (r.exists) { phone = null; throw new Error('Ce numéro est déjà utilisé par un autre compte.'); }
         $('[data-step2]', body).hidden = false;
-        if (r.devCode) { $('[data-dev]', body).hidden = false; $('[data-dev]', body).innerHTML = `Mode démonstration : code <b>${r.devCode}</b>`; }
+        // Sans SMS : confirmation par le mot de passe du compte.
+        if (r.mode === 'password') { pwMode = true; $('[data-l2]', body).textContent = 'Votre mot de passe Scola'; const c = $('[data-code]', body); c.type = 'password'; c.removeAttribute('maxlength'); c.removeAttribute('inputmode'); }
+        // SMS activés : un code est envoyé au nouveau numéro pour vérifier qu'il vous appartient.
+        if (r.sms) { sms = true; $('[data-sms-f]', body).hidden = false; await post('/me/number-code', { phone }); toast('Code envoyé par SMS au nouveau numéro'); }
         return false;
       }
-      setMe(await post('/me/change-number', { phone, code: $('[data-code]', body).value }));
+      const v = $('[data-code]', body).value;
+      setMe(await post('/me/change-number', pwMode ? { phone, password: v, code: sms ? $('[data-sms]', body).value : undefined } : { phone, code: v }));
       toast('Numéro modifié');
     } }],
   });

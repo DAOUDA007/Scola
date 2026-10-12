@@ -18,8 +18,10 @@ npm start            # http://localhost:3000  (élèves)  et  http://localhost:3
 `Application/Backend`, sert l'interface des élèves (`Application/Frontend`) et charge la partie
 administration (`Admin/`) : une seule adresse suffit.
 
-Sans fournisseur SMS configuré, l'application est en **mode démonstration** : le code de connexion à
-6 chiffres s'affiche dans la console du serveur et directement à l'écran.
+Sans fournisseur SMS (cas par défaut, gratuit), les élèves se connectent avec **leur numéro et un mot de
+passe** choisi à l'inscription : aucun code n'est affiché ni envoyé. Mot de passe oublié : depuis un
+appareil déjà connecté (*Paramètres › Compte › Mot de passe*) ou avec un **mot de passe provisoire**
+créé par l'administration (fiche de l'élève). Cinq erreurs bloquent le numéro 15 minutes.
 
 Pour tester à plusieurs sur un seul ordinateur, ouvrez une fenêtre normale et une fenêtre de navigation
 privée, et inscrivez deux numéros différents dans la même filière et le même niveau.
@@ -92,11 +94,36 @@ Ce que fait l'administration :
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Envoi des e-mails (codes d'activation des établissements, avis aux administrateurs). Sans eux, le code s'affiche à l'administrateur, qui le transmet lui-même |
 | `PUBLIC_URL` | Adresse publique du site, utilisée dans les e-mails (sinon déduite de la requête) |
 | `ETAB_DIR` | Dossier de l'espace établissements (`Etablissement` par défaut) |
-| `SMS_PROVIDER` | Désactive le mode démo ; branchez votre fournisseur dans `sendSms()` (`Application/Backend/src/auth.js`) |
+| `SMS_PROVIDER`, `TEXTBEE_API_KEY`, `TEXTBEE_DEVICE_ID` | SMS envoyés par **votre téléphone Android** (application gratuite textbee) : `SMS_PROVIDER=textbee` + la clé API (+ l'identifiant du téléphone, facultatif). Voir « SMS gratuits » ci-dessous |
 
 > **Important (téléphones)** : micro, caméra, appels et notifications exigent **HTTPS** (sauf sur
 > `localhost`). Pour tester depuis un téléphone du réseau local, servez Scola en HTTPS (`SSL_KEY`/`SSL_CERT`)
 > ou derrière un proxy HTTPS.
+
+### SMS gratuits avec votre téléphone Android (textbee)
+
+La connexion se fait toujours par **numéro + mot de passe**. Les SMS servent seulement à vérifier le
+numéro à l'inscription, à retrouver un mot de passe oublié et à changer de numéro.
+
+1. Sur un téléphone Android (7.0 ou plus) avec une puce et un forfait SMS : installez l'application
+   **textbee** (https://textbee.dev/download).
+2. Créez un compte sur https://app.textbee.dev, puis une **clé API** dans le tableau de bord.
+3. Dans l'application textbee du téléphone : scannez le code QR (ou collez la clé) et **activez la passerelle**.
+4. Sur Render (*Environment*) : `SMS_PROVIDER=textbee` et `TEXTBEE_API_KEY=<votre clé>`
+   (`TEXTBEE_DEVICE_ID` si vous connectez plusieurs téléphones). Redéployez.
+5. Vérification : `https://<votre-service>.onrender.com/api/health` doit afficher `"sms":true`.
+
+Offre gratuite textbee : 50 SMS par jour, 300 par mois, un téléphone. Scola limite à 1 code par minute
+et 4 par jour par numéro. Le téléphone doit rester allumé et connecté à Internet. S'il est hors ligne,
+les élèves voient un message clair et peuvent réessayer plus tard.
+
+### Administrateur principal (propriétaire)
+
+Le premier administrateur est le **propriétaire** du site : personne d'autre ne peut le supprimer ni
+modifier son compte ; lui seul peut modifier ou supprimer les autres administrateurs et transmettre ce
+rôle (mot de passe exigé). Supprimer un administrateur, un élève, un établissement ou annuler un paiement
+demande le mot de passe de l'administrateur, et ces actions sont inscrites dans un journal
+(page Administrateurs).
 
 ### Rester connecté (comme WhatsApp)
 
@@ -166,7 +193,7 @@ sont relayés vers Render. Si Render est en veille, la première ouverture prend
 
 ## Fonctionnalités
 
-**Compte et connexion** — numéro de téléphone + code SMS, vérification en deux étapes (PIN), connexion
+**Compte et connexion** — numéro de téléphone + mot de passe (ou code SMS si un fournisseur est branché), vérification en deux étapes (PIN), connexion
 d'autres appareils par code QR (comme WhatsApp Web), liste des appareils connectés et déconnexion à distance,
 changement de numéro, export de mes données, suppression du compte.
 
@@ -279,7 +306,7 @@ Application/                 l'application des élèves
     data/                    base db.json, fichiers envoyés, clé secrète (créé au démarrage)
     src/
       index.js               serveur HTTP(S), Socket.IO ; sert Application/Frontend et charge Admin/
-      auth.js                inscription, code SMS, PIN, connexion par QR
+      auth.js                inscription, mot de passe (ou code SMS), PIN, connexion par QR
       api.js                 API REST des élèves (messages, discussions, classe, stickers, diffusion, profil…)
       orientation.js         chaînes d'orientation côté élèves (/api/orientation) et code d'activation
       offers.js              formules, droits (entitlements), quotas, réglages commerciaux

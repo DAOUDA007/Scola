@@ -76,7 +76,7 @@ app.get('/offline-files.json', (req, res) => {
   res.json(list);
 });
 // Diagnostic : les données sont-elles conservées entre deux redémarrages ?
-app.get('/api/health', (req, res) => res.json({ ok: true, storage: usesPostgres() ? 'postgresql' : 'fichier', persistent: usesPostgres() || !process.env.RENDER, startedAt: STARTED }));
+app.get('/api/health', (req, res) => res.json({ ok: true, sms: auth.SMS_ENABLED, storage: usesPostgres() ? 'postgresql' : 'fichier', persistent: usesPostgres() || !process.env.RENDER, startedAt: STARTED }));
 
 // L'API d'administration doit être montée avant l'API élèves (qui exige un jeton élève).
 app.use('/api/admin', admin.router);
@@ -102,8 +102,8 @@ app.use((req, res, next) => {
 app.use((err, req, res, next) => {
   if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'Fichier trop volumineux (100 Mo maximum).' });
   const status = err.status || err.statusCode || 500;
-  if (status >= 500) console.error(err);
-  res.status(status).json({ error: status >= 500 ? 'Erreur interne du serveur.' : err.message });
+  if (status >= 500 && !err.expose) console.error(err);
+  res.status(status).json({ error: status >= 500 && !err.expose ? 'Erreur interne du serveur.' : err.message });
 });
 
 let server;
@@ -131,5 +131,5 @@ server.listen(PORT, () => {
   console.log(usesPostgres()
     ? '  Données : PostgreSQL (conservées entre les redémarrages)\n'
     : '  Données : fichier local data/db.json (ne pas utiliser sur un hébergeur dont le disque est effacé, ex. Render : définissez DATABASE_URL)\n');
-  if (!process.env.SMS_PROVIDER) console.log('  (Mode démo : les codes de connexion s\'affichent ici et dans l\'application.)\n');
+  console.log(auth.SMS_ENABLED ? '  SMS : envoyés par le téléphone Android (textbee).' : '  SMS : non configurés (connexion par numéro + mot de passe uniquement).');
 });

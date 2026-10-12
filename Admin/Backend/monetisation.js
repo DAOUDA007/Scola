@@ -93,7 +93,11 @@ router.post('/billing/schools/:id/subscriptions', (req, res) => {
 
 router.post('/billing/subscriptions/:id/extend', (req, res) => res.json(B.subView(B.extend(B.getSub(req.params.id), req.body.days, req.body.note, req.admin))));
 router.post('/billing/subscriptions/:id/plan', (req, res) => res.json(B.subView(B.changePlan(B.getSub(req.params.id), req.body.plan, req.body.note, req.admin))));
-router.post('/billing/subscriptions/:id/cancel', (req, res) => res.json(B.subView(B.cancel(B.getSub(req.params.id), req.body.note, req.admin))));
+router.post('/billing/subscriptions/:id/cancel', (req, res) => {
+  // Action grave : mot de passe de l'administrateur exigé.
+  if (!backendRequire('bcryptjs').compareSync(String(req.body.password || ''), req.admin.passwordHash)) throw httpError(400, 'Mot de passe incorrect : action annulée.');
+  res.json(B.subView(B.cancel(B.getSub(req.params.id), req.body.note, req.admin)));
+});
 
 /* ---------------- Reçus ---------------- */
 

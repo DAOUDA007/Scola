@@ -89,6 +89,8 @@ async function loadApp() {
   netBar();
   connect();
   outbox.flush();
+  // Connexion sans SMS : chaque compte doit avoir son mot de passe (ancien compte, ou mot de passe provisoire).
+  if (S.me.mustChangePassword || S.me.hasPassword === false) import('./settings.js').then(m => m.passwordFlow({ force: true }));
   const params = new URLSearchParams(location.search);
   const q = params.get('chat');
   const u = params.get('user');

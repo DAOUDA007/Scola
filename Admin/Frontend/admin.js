@@ -305,6 +305,7 @@ async function userDetail(c, id) {
         ${u.hasPin ? `<button class="btn ghost" data-a="pin">${icon('key', 'sm')} Réinitialiser le code PIN</button>` : ''}
         <button class="btn ghost" data-a="logout">${icon('laptop', 'sm')} Déconnecter tous ses appareils</button>
         <button class="btn ${u.suspended ? '' : 'danger'}" data-a="suspend">${icon('shield', 'sm')} ${u.suspended ? 'Réactiver le compte' : 'Suspendre le compte'}</button>
+        <button class="btn ghost" data-a="temppw">${icon('key', 'sm')} Mot de passe provisoire${u.hasPassword ? '' : ' (aucun mot de passe)'}</button>
         <button class="btn ghost" data-a="warn">${icon('flag', 'sm')} Envoyer un avertissement</button>
         <button class="btn danger" data-a="delete">${icon('trash', 'sm')} Supprimer le compte</button>
       </div></section></div>
@@ -316,6 +317,12 @@ async function userDetail(c, id) {
     try {
       if (a === 'edit') return editUser(u);
       if (a === 'warn') return sendWarning({ userId: u.id, name: u.name });
+      if (a === 'temppw') {
+        if (!(await confirmBox(`Mot de passe provisoire pour ${u.name} ?`, 'Un nouveau mot de passe est créé et l’ancien ne fonctionne plus. Transmettez-le à l’élève en personne ou par un moyen sûr : il devra le changer à sa prochaine connexion.', { ok: 'Créer' }))) return;
+        const r = await post(`/users/${u.id}/temp-password`);
+        modal({ title: 'Mot de passe provisoire', body: `<p style="margin-top:0">Pour <b>${esc(r.name)}</b> (${esc(r.phone)}) :</p><div class="code-box">${esc(r.password)}</div><p class="hint">Il ne sera plus affiché. L'élève se connecte avec son numéro et ce mot de passe, puis en choisit un nouveau.</p>`, buttons: [{ label: 'Copier', cls: 'text', onClick: () => { copyText(r.password); toast('Copié'); return false; } }, { label: 'Terminé', cls: 'text' }] });
+        return;
+      }
       if (a === 'move') return moveUser(u);
       if (a === 'restrict') { await (u.restricted ? del(`/classes/${u.classId}/restrict/${u.id}`) : post(`/classes/${u.classId}/restrict/${u.id}`)); toast('Fait'); }
       if (a === 'pin') { if (!(await confirmBox('Réinitialiser le code PIN ?', 'La vérification en deux étapes sera désactivée pour ce compte.', { ok: 'Réinitialiser' }))) return; await post(`/users/${u.id}/reset-pin`); toast('Code PIN réinitialisé'); }
@@ -330,8 +337,9 @@ async function userDetail(c, id) {
         }
       }
       if (a === 'delete') {
-        if (!(await confirmBox(`Supprimer le compte de ${u.name} ?`, 'Profil, abonnements et appareils seront supprimés et la personne quittera sa classe. Ses messages restent affichés sous « Compte supprimé ». Action irréversible.', { ok: 'Supprimer', danger: true }))) return;
-        await del('/users/' + u.id);
+        const password = await askPassword(`Supprimer le compte de ${u.name} ?`, 'Profil, abonnements et appareils seront supprimés et la personne quittera sa classe. Ses messages restent affichés sous « Compte supprimé ». Action irréversible.');
+        if (password === null) return;
+        await A('DELETE', '/users/' + u.id, { password });
         toast('Compte supprimé');
         location.hash = '#/users';
         return;
@@ -724,8 +732,9 @@ async function schoolDetail(c, id) {
         await patch('/schools/' + id, { status: s.status === 'suspended' ? 'active' : 'suspended' }); toast(s.status === 'suspended' ? 'Chaîne réactivée' : 'Chaîne suspendue');
       }
       if (a === 'delete') {
-        if (!(await confirmBox(`Supprimer « ${s.name} » ?`, 'Le compte, la chaîne, ses publications et ses échanges avec les élèves seront supprimés. Action irréversible.', { ok: 'Supprimer', danger: true }))) return;
-        await del('/schools/' + id); toast('Établissement supprimé'); refreshBadge(); location.hash = '#/schools'; return;
+        const password = await askPassword(`Supprimer « ${s.name} » ?`, 'Le compte, la chaîne, ses publications et ses échanges avec les élèves seront supprimés. Action irréversible.');
+        if (password === null) return;
+        await A('DELETE', '/schools/' + id, { password }); toast('Établissement supprimé'); refreshBadge(); location.hash = '#/schools'; return;
       }
       schoolDetail(c, id);
     } catch (er) { fail(er); }
@@ -738,11 +747,15 @@ async function admins(c) {
   const load = async () => {
     const list = await get('/admins').catch(fail);
     if (!list) return;
+    const meOwner = !!list.find(x => x.me)?.owner;
     c.innerHTML = `<div class="toolbar"><span class="grow muted">Les administrateurs gèrent tout le site. Ce ne sont pas des comptes élèves.</span><button class="btn" data-add>${icon('userPlus', 'sm')} Ajouter un administrateur</button></div>
       <section class="panel"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nom</th><th>E-mail</th><th>Ajouté par</th><th>Créé le</th><th>Dernière connexion</th><th></th></tr></thead><tbody>
-      ${list.map(a => `<tr data-id="${a.id}"><td><b>${esc(a.name)}</b>${a.me ? ' <span class="tag">Vous</span>' : ''}${a.mustChangePassword ? ' <span class="tag warn">Mot de passe provisoire</span>' : ''}</td><td>${esc(a.email)}</td>
+      ${list.map(a => `<tr data-id="${a.id}"><td><b>${esc(a.name)}</b>${a.owner ? ' <span class="tag founder">Propriétaire</span>' : ''}${a.me ? ' <span class="tag">Vous</span>' : ''}${a.mustChangePassword ? ' <span class="tag warn">Mot de passe provisoire</span>' : ''}</td><td>${esc(a.email)}</td>
         <td>${esc(a.createdBy || '—')}</td><td>${esc(listTime(a.createdAt))}</td><td>${a.lastLogin ? esc(listTime(a.lastLogin)) : 'Jamais'}</td>
-        <td class="num"><button class="btn text" data-edit>Modifier</button>${a.me ? '' : '<button class="btn text danger" data-del>Supprimer</button>'}</td></tr>`).join('')}</tbody></table></div></section>`;
+        <td class="num">${a.me || meOwner ? '<button class="btn text" data-edit>Modifier</button>' : ''}${meOwner && !a.me ? '<button class="btn text" data-owner>Transmettre la propriété</button><button class="btn text danger" data-del>Supprimer</button>' : ''}</td></tr>`).join('')}</tbody></table></div></section>
+      <p class="hint">${meOwner ? 'Vous êtes le propriétaire du site : vous seul pouvez modifier ou supprimer les autres administrateurs, et transmettre ce rôle.' : 'Seul le propriétaire du site peut modifier ou supprimer un administrateur. Vous pouvez modifier votre propre compte.'}</p>
+      <section class="panel"><h2>Journal des actions sensibles</h2><div data-log class="tbl-wrap"><div class="empty">Chargement…</div></div></section>`;
+    get('/log').then(l => { $('[data-log]', c).innerHTML = l.length ? `<table class="tbl"><tbody>${l.slice(0, 100).map(x => `<tr><td style="white-space:nowrap">${esc(fullDate(x.at))}</td><td><b>${esc(x.adminName)}</b></td><td>${esc(x.action)}</td><td class="faint">${esc(x.target)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Aucune action enregistrée.</div>'; }).catch(() => {});
     $('[data-add]', c).onclick = () => adminForm(null, load);
   };
   c.onclick = async (e) => {
@@ -752,12 +765,28 @@ async function admins(c) {
     const a = list.find(x => x.id === tr.dataset.id);
     if (e.target.closest('[data-edit]')) return a.me ? (location.hash = '#/account') : adminForm(a, load);
     if (e.target.closest('[data-del]')) {
-      if (!(await confirmBox(`Supprimer l'administrateur ${a.name} ?`, 'Cette personne n\'aura plus accès à l\'espace d\'administration.', { ok: 'Supprimer', danger: true }))) return;
-      try { await del('/admins/' + a.id); toast('Administrateur supprimé'); load(); } catch (er) { fail(er); }
+      const password = await askPassword(`Supprimer l'administrateur ${a.name} ?`, 'Cette personne n’aura plus accès à l’espace d’administration.');
+      if (password === null) return;
+      try { await A('DELETE', '/admins/' + a.id, { password }); toast('Administrateur supprimé'); load(); } catch (er) { fail(er); }
+    }
+    if (e.target.closest('[data-owner]')) {
+      const password = await askPassword(`Transmettre la propriété à ${a.name} ?`, 'Cette personne deviendra l’administrateur principal : vous ne pourrez plus supprimer ni modifier les autres administrateurs.');
+      if (password === null) return;
+      try { await post(`/admins/${a.id}/owner`, { password }); toast('Rôle de propriétaire transmis'); load(); } catch (er) { fail(er); }
     }
   };
   load();
 }
+
+// Confirmation d'une action grave par le mot de passe de l'administrateur connecté.
+function askPassword(title, text) {
+  return new Promise((resolve) => {
+    let v = null;
+    const body = h(`<div><p class="muted" style="margin-top:0">${esc(text)}</p><div class="field"><label>Votre mot de passe</label><input class="input" type="password" data-pw autocomplete="current-password"></div></div>`);
+    modal({ title, body, onClose: () => resolve(v), buttons: [{ label: 'Annuler' }, { label: 'Confirmer', cls: 'text danger', onClick: () => { v = $('[data-pw]', body).value; if (!v) throw new Error('Saisissez votre mot de passe.'); } }] });
+  });
+}
+window.__askPassword = askPassword;
 
 function adminForm(a, done) {
   const body = h(`<div>

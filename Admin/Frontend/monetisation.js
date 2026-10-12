@@ -129,7 +129,9 @@ export async function billingDetail(c, id) {
         if (!(await confirmBox('Annuler cet enregistrement ?', 'À utiliser pour une saisie erronée : l\'abonnement et son paiement sont marqués « annulés » (ils restent dans l\'historique) et les droits correspondants sont retirés.', { ok: 'Annuler l\'enregistrement', danger: true }))) return;
         const note = await promptBox('Motif de l\'annulation', { max: 500 });
         if (note === null) return;
-        await X.post(`/billing/subscriptions/${can.dataset.can}/cancel`, { note }); toast('Enregistrement annulé'); return reload();
+        const password = await window.__askPassword('Confirmer l’annulation', 'Action sensible : confirmez avec votre mot de passe administrateur.');
+        if (password === null) return;
+        await X.post(`/billing/subscriptions/${can.dataset.can}/cancel`, { note, password }); toast('Enregistrement annulé'); return reload();
       }
     } catch (er) { fail(er); }
   };

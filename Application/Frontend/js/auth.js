@@ -118,7 +118,7 @@ function phoneStep(prefill = {}) {
   const card = shell(`
     <button class="icon-btn" data-back style="margin:-12px 0 8px -12px">${icon('back')}</button>
     <h1>Ton numéro de téléphone</h1>
-    <p class="muted">Scola va t'envoyer un code à 6 chiffres pour vérifier ton numéro.</p>
+    <p class="muted">Ton numéro de téléphone est ton identifiant sur Scola. Il n'est jamais montré aux établissements.</p>
     <div class="field"><label>Pays</label><select class="select" data-country>${Object.keys(DIAL).map(c => `<option ${c === country ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
     <div class="field"><label>Numéro</label><div class="phone-row"><input class="input" data-dial readonly style="width:70px;flex:none"><input class="input" data-num inputmode="tel" autocomplete="tel-national" placeholder="07 00 00 00 00" value="${esc(prefill.num || '')}"></div></div>
     <div class="error-text" data-err></div>
@@ -135,12 +135,112 @@ function phoneStep(prefill = {}) {
     $('[data-go]', card).disabled = true;
     try {
       const r = await post('/auth/request-otp', { phone });
-      otpStep(phone, r, { country: sel.value, num: num.value });
+      if (r.mode === 'password') passwordStep(phone, r, { country: sel.value, num: num.value });
+      else otpStep(phone, r, { country: sel.value, num: num.value });
     } catch (e) { $('[data-err]', card).textContent = e.message; $('[data-go]', card).disabled = false; }
   };
   $('[data-go]', card).onclick = go;
   num.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
   num.focus();
+}
+
+/* ---------- Mot de passe (connexion sans SMS) ---------- */
+function passwordStep(phone, info, prefill) {
+  const login = info.exists;
+  const card = shell(`
+    <button class="icon-btn" data-back style="margin:-12px 0 8px -12px">${icon('back')}</button>
+    <h1>${login ? 'Ton mot de passe' : 'Crée ton mot de passe'}</h1>
+    <p class="muted">${login ? `Compte Scola du <b>${esc(phone)}</b>.` : `Nouveau compte pour le <b>${esc(phone)}</b>. Ce mot de passe te permettra de te reconnecter sur n'importe quel téléphone.`}
+      <button class="btn text" data-edit style="height:auto;padding:0">Changer de numéro</button></p>
+    ${login && !info.hasPassword ? `<div class="notice warn" style="margin-bottom:12px">Ce compte n'a pas encore de mot de passe. Ouvre Scola sur un appareil déjà connecté et crée-le dans <b>Paramètres › Compte › Mot de passe</b>, ou demande un mot de passe provisoire à l'administration de Scola.</div>` : ''}
+    ${!login && info.sms ? `<div class="field"><label>Code reçu par SMS</label><input class="input code-in" data-code inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 chiffres">
+      <div class="hint" data-sms-state>Envoi du code…</div><button type="button" class="btn text" data-resend style="height:auto;padding:0" disabled>Renvoyer le code</button></div>` : ''}
+    <div class="field"><label>Mot de passe</label><div class="pw-row"><input class="input" type="password" data-pw autocomplete="${login ? 'current-password' : 'new-password'}" minlength="8" placeholder="${login ? '' : '8 caractères minimum'}"><button type="button" class="icon-btn" data-eye title="Afficher">${icon('eye', 'sm')}</button></div></div>
+    ${login ? '' : `<div class="field"><label>Confirme le mot de passe</label><input class="input" type="password" data-pw2 autocomplete="new-password"></div>
+      <p class="hint" style="margin-top:-4px">Ne le donne à personne. Évite ta date de naissance ou 12345678.</p>`}
+    <div class="error-text" data-err></div>
+    <button class="btn block" data-go>${login ? 'Se connecter' : 'Continuer'}</button>
+    ${login ? (info.sms ? `<p style="text-align:center;margin-top:14px"><button class="btn text" data-forgot>Mot de passe oublié ?</button></p>`
+      : `<p class="hint" style="text-align:center;margin-top:14px"><b>Mot de passe oublié ?</b> Sur un appareil déjà connecté : Paramètres › Compte › Mot de passe. Sinon, demande un mot de passe provisoire à l'administration de Scola.</p>`) : ''}`, true);
+  const pw = $('[data-pw]', card), err = $('[data-err]', card), btn = $('[data-go]', card);
+  $('[data-forgot]', card)?.addEventListener('click', () => resetStep(phone, prefill));
+  // Code de vérification envoyé par SMS dès l'ouverture de l'écran (inscription).
+  if ($('[data-code]', card)) smsSender(card, () => post('/auth/send-code', { phone, purpose: 'signup' }), phone);
+  $('[data-back]', card).onclick = () => phoneStep(prefill);
+  $('[data-edit]', card).onclick = () => phoneStep(prefill);
+  $('[data-eye]', card).onclick = () => { const t = pw.type === 'password' ? 'text' : 'password'; pw.type = t; const p2 = $('[data-pw2]', card); if (p2) p2.type = t; };
+  const go = async () => {
+    err.textContent = '';
+    if (pw.value.length < 8) return (err.textContent = 'Le mot de passe doit contenir au moins 8 caractères.');
+    if (!login && pw.value !== $('[data-pw2]', card).value) return (err.textContent = 'Les deux mots de passe ne correspondent pas.');
+    btn.disabled = true;
+    try {
+      if (login) {
+        const r = await post('/auth/login-password', { phone, password: pw.value, device: deviceName() });
+        if (r.token) return done(r.token);
+        if (r.needPin) return pinStep(r);
+      } else {
+        const code = $('[data-code]', card)?.value;
+        if ($('[data-code]', card) && !/^\d{6}$/.test(code)) { btn.disabled = false; return (err.textContent = 'Saisis le code à 6 chiffres reçu par SMS.'); }
+        const r = await post('/auth/signup-start', { phone, password: pw.value, code });
+        return profileStep({ signupToken: r.signupToken, country: prefill.country });
+      }
+    } catch (e) { err.textContent = e.message; btn.disabled = false; pw.select(); }
+  };
+  btn.onclick = go;
+  card.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('input')) go(); });
+  pw.focus();
+}
+
+// Envoi d'un code par SMS avec compte à rebours avant de pouvoir le renvoyer.
+function smsSender(card, send, phone) {
+  const state = $('[data-sms-state]', card), again = $('[data-resend]', card);
+  const run = async () => {
+    again.disabled = true;
+    state.textContent = 'Envoi du code…';
+    try {
+      await send();
+      state.innerHTML = `Code envoyé par SMS au <b>${esc(phone)}</b>. Il arrive en général en moins d'une minute.`;
+      let left = 60;
+      const t = setInterval(() => {
+        if (!again.isConnected) return clearInterval(t);
+        left--; again.textContent = left > 0 ? `Renvoyer le code (${left} s)` : 'Renvoyer le code';
+        if (left <= 0) { again.disabled = false; clearInterval(t); }
+      }, 1000);
+    } catch (e) { state.textContent = e.message; again.disabled = false; again.textContent = 'Réessayer'; }
+  };
+  again.onclick = run;
+  run();
+}
+
+/* ---------- Mot de passe oublié (code par SMS) ---------- */
+function resetStep(phone, prefill) {
+  const card = shell(`
+    <button class="icon-btn" data-back style="margin:-12px 0 8px -12px">${icon('back')}</button>
+    <h1>Nouveau mot de passe</h1>
+    <p class="muted">Compte Scola du <b>${esc(phone)}</b>.</p>
+    <div class="field"><label>Code reçu par SMS</label><input class="input code-in" data-code inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 chiffres">
+      <div class="hint" data-sms-state>Envoi du code…</div><button type="button" class="btn text" data-resend style="height:auto;padding:0" disabled>Renvoyer le code</button></div>
+    <div class="field"><label>Nouveau mot de passe (8 caractères minimum)</label><input class="input" type="password" data-pw autocomplete="new-password"></div>
+    <div class="field"><label>Confirme le mot de passe</label><input class="input" type="password" data-pw2 autocomplete="new-password"></div>
+    <div class="error-text" data-err></div>
+    <button class="btn block" data-go>Enregistrer et me connecter</button>`, true);
+  const err = $('[data-err]', card), btn = $('[data-go]', card);
+  $('[data-back]', card).onclick = () => phoneStep(prefill);
+  smsSender(card, () => post('/auth/send-code', { phone, purpose: 'reset' }), phone);
+  btn.onclick = async () => {
+    err.textContent = '';
+    const code = $('[data-code]', card).value, p1 = $('[data-pw]', card).value;
+    if (!/^\d{6}$/.test(code)) return (err.textContent = 'Saisis le code à 6 chiffres reçu par SMS.');
+    if (p1.length < 8) return (err.textContent = 'Le mot de passe doit contenir au moins 8 caractères.');
+    if (p1 !== $('[data-pw2]', card).value) return (err.textContent = 'Les deux mots de passe ne correspondent pas.');
+    btn.disabled = true;
+    try {
+      const r = await post('/auth/reset-password', { phone, code, password: p1, device: deviceName() });
+      if (r.token) return done(r.token);
+      if (r.needPin) return pinStep(r);
+    } catch (e) { err.textContent = e.message; btn.disabled = false; }
+  };
 }
 
 /* ---------- Code reçu par SMS ---------- */

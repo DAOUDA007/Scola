@@ -5,7 +5,7 @@ const multer = require('multer');
 const { UPLOADS, storeMedia } = require('./db');
 const C = require('./core');
 const push = require('./push');
-const { requireAuth, httpError, bcrypt } = require('./auth');
+const { requireAuth, httpError, bcrypt, PASSWORD_MODE, SMS_ENABLED, sendCode, checkCode, isSchoolPhone } = require('./auth');
 const { data, save } = C;
 
 const router = express.Router();
@@ -53,7 +53,7 @@ function pushUser(u) {
 }
 
 function selfView(u) {
-  return { ...C.publicUser(u, u.id), phone: u.phone, city: u.city || '', cityAsked: !!u.cityAsked, privacy: u.privacy, settings: u.settings, blocked: u.blocked, hasPin: !!u.pinHash, pinHint: u.pinHint || '', stickers: u.stickers || [], favStickers: u.favStickers || [] };
+  return { ...C.publicUser(u, u.id), phone: u.phone, hasPassword: !!u.passwordHash, mustChangePassword: !!u.mustChangePassword, city: u.city || '', cityAsked: !!u.cityAsked, privacy: u.privacy, settings: u.settings, blocked: u.blocked, hasPin: !!u.pinHash, pinHint: u.pinHint || '', stickers: u.stickers || [], favStickers: u.favStickers || [] };
 }
 
 function isMedia(u) { return typeof u === 'string' && /^\/media\/[a-f0-9]{32}(\.[a-z0-9]{1,7})?$/.test(u); }
@@ -402,10 +402,25 @@ router.delete('/me/pin', (req, res) => {
   res.json(selfView(req.user));
 });
 
+router.post('/me/number-code', async (req, res) => {
+  const phone = String(req.body.phone || '').replace(/[^\d+]/g, '');
+  if (phone.replace(/\D/g, '').length < 8) throw httpError(400, 'Numéro invalide.');
+  if (data.phones[phone] && !data.users[data.phones[phone]]?.deleted) throw httpError(400, 'Ce numéro est déjà utilisé.');
+  if (isSchoolPhone(phone)) throw httpError(400, 'Ce numéro est celui d\'un établissement.');
+  await sendCode(phone, 'number', req.ip);
+  res.json({ ok: true });
+});
+
 router.post('/me/change-number', (req, res) => {
   const phone = String(req.body.phone || '').replace(/[^\d+]/g, '');
   const o = data.otps[phone];
-  if (!o || o.expires < C.now() || String(req.body.code).trim() !== o.code) throw httpError(400, 'Code incorrect ou expiré.');
+  if (phone.replace(/\D/g, '').length < 8) throw httpError(400, 'Numéro invalide.');
+  if (PASSWORD_MODE) {
+    // Sans SMS : le changement est confirmé par le mot de passe du compte.
+    if (!req.user.passwordHash) throw httpError(400, 'Créez d\'abord votre mot de passe (Paramètres › Compte › Mot de passe).');
+    if (!bcrypt.compareSync(String(req.body.password || ''), req.user.passwordHash)) throw httpError(400, 'Mot de passe incorrect.');
+    if (SMS_ENABLED) checkCode(phone, 'number', req.body.code);
+  } else if (!o || o.expires < C.now() || String(req.body.code).trim() !== o.code) throw httpError(400, 'Code incorrect ou expiré.');
   if (data.phones[phone] && data.phones[phone] !== req.user.id && !data.users[data.phones[phone]]?.deleted) throw httpError(400, 'Ce numéro est déjà utilisé.');
   delete data.otps[phone];
   delete data.phones[req.user.phone];

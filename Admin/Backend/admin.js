@@ -30,8 +30,31 @@ function validEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
 function checkPassword(p) {
   if (String(p || '').length < 8) throw httpError(400, 'Le mot de passe doit contenir au moins 8 caractères.');
 }
+// Propriétaire du site : l'administrateur principal. Personne d'autre ne peut le supprimer,
+// le modifier ni retirer d'administrateurs ; lui seul peut transmettre ce rôle.
+function ownerId() {
+  if (!data.meta.ownerAdminId || !data.admins[data.meta.ownerAdminId]) {
+    const first = Object.values(data.admins).sort((x, y) => (x.createdBy ? 1 : 0) - (y.createdBy ? 1 : 0) || x.createdAt - y.createdAt)[0];
+    if (first) { data.meta.ownerAdminId = first.id; save(); }
+  }
+  return data.meta.ownerAdminId;
+}
+const isOwner = (a) => !!a && a.id === ownerId();
+function requireOwner(req) { if (!isOwner(req.admin)) throw httpError(403, 'Action réservée au propriétaire du site (administrateur principal).'); }
+// Actions graves : confirmation par le mot de passe de l'administrateur connecté.
+function confirmPassword(req) {
+  if (!bcrypt.compareSync(String(req.body?.password || ''), req.admin.passwordHash)) throw httpError(400, 'Mot de passe incorrect : action annulée.');
+}
+// Journal des actions des administrateurs (500 dernières).
+function log(req, action, target = '') {
+  data.adminLog ||= [];
+  data.adminLog.push({ at: C.now(), adminId: req.admin.id, adminName: req.admin.name, action, target: String(target).slice(0, 200) });
+  if (data.adminLog.length > 500) data.adminLog.splice(0, data.adminLog.length - 500);
+  save();
+}
+
 function adminView(a, me) {
-  return { id: a.id, name: a.name, email: a.email, createdAt: a.createdAt, createdBy: a.createdBy ? (data.admins[a.createdBy]?.name || 'Administrateur supprimé') : null, lastLogin: a.lastLogin || null, mustChangePassword: !!a.mustChangePassword, me: a.id === me };
+  return { id: a.id, name: a.name, email: a.email, owner: isOwner(a), createdAt: a.createdAt, createdBy: a.createdBy ? (data.admins[a.createdBy]?.name || 'Administrateur supprimé') : null, lastLogin: a.lastLogin || null, mustChangePassword: !!a.mustChangePassword, me: a.id === me };
 }
 
 function createAdmin({ name, email, password, createdBy = null, mustChangePassword = false }) {
@@ -127,12 +150,15 @@ router.get('/admins', (req, res) => res.json(Object.values(data.admins).sort((x,
 
 router.post('/admins', (req, res) => {
   const a = createAdmin({ ...req.body, createdBy: req.admin.id, mustChangePassword: true });
+  log(req, 'Administrateur ajouté', `${a.name} (${a.email})`);
   res.json(adminView(a, req.admin.id));
 });
 
 router.patch('/admins/:id', (req, res) => {
   const a = data.admins[req.params.id];
   if (!a) throw httpError(404, 'Administrateur introuvable.');
+  // Chacun modifie son propre compte ; seul le propriétaire modifie celui des autres.
+  if (a.id !== req.admin.id) requireOwner(req);
   const b = req.body;
   if (b.name !== undefined) a.name = String(b.name).trim().slice(0, 60) || a.name;
   if (b.email !== undefined) {
@@ -148,6 +174,7 @@ router.patch('/admins/:id', (req, res) => {
     if (a.id !== req.admin.id) a.mustChangePassword = true;
   }
   save();
+  if (a.id !== req.admin.id) log(req, 'Administrateur modifié', a.name);
   res.json(adminView(a, req.admin.id));
 });
 
@@ -155,11 +182,29 @@ router.delete('/admins/:id', (req, res) => {
   const a = data.admins[req.params.id];
   if (!a) throw httpError(404, 'Administrateur introuvable.');
   if (a.id === req.admin.id) throw httpError(400, 'Vous ne pouvez pas supprimer votre propre compte administrateur.');
+  if (isOwner(a)) throw httpError(403, 'Le propriétaire du site ne peut pas être supprimé.');
+  requireOwner(req);
+  confirmPassword(req);
   if (Object.keys(data.admins).length <= 1) throw httpError(400, 'Il doit rester au moins un administrateur.');
   delete data.admins[a.id];
   save();
+  log(req, 'Administrateur supprimé', `${a.name} (${a.email})`);
   res.json({ ok: true });
 });
+
+// Transmission du rôle de propriétaire (par le propriétaire lui-même, mot de passe exigé).
+router.post('/admins/:id/owner', (req, res) => {
+  requireOwner(req);
+  confirmPassword(req);
+  const a = data.admins[req.params.id];
+  if (!a) throw httpError(404, 'Administrateur introuvable.');
+  data.meta.ownerAdminId = a.id;
+  save();
+  log(req, 'Rôle de propriétaire transmis', a.name);
+  res.json(adminView(a, req.admin.id));
+});
+
+router.get('/log', (req, res) => res.json([...(data.adminLog || [])].reverse().slice(0, 300)));
 
 /* ---------------- Tableau de bord ---------------- */
 
@@ -206,7 +251,7 @@ function userRow(u) {
     id: u.id, name: u.name, phone: u.phone, avatar: u.avatar, school: u.school, about: u.about,
     classId: u.classId, className: cls?.name || '—', country: cls?.country || '',
     createdAt: u.createdAt, lastSeen: u.lastSeen, online: C.isOnline(u.id),
-    suspended: u.suspended || null, hasPin: !!u.pinHash, restricted: !!cls?.restricted.includes(u.id),
+    suspended: u.suspended || null, hasPin: !!u.pinHash, hasPassword: !!u.passwordHash, restricted: !!cls?.restricted.includes(u.id),
   };
 }
 
@@ -284,6 +329,7 @@ router.patch('/users/:id', (req, res) => {
 });
 
 router.post('/users/:id/suspend', (req, res) => {
+  log(req, 'Compte élève suspendu', `${data.users[req.params.id]?.name || ''}${req.body.reason ? ' — ' + String(req.body.reason).slice(0, 120) : ''}`);
   const u = getUser(req.params.id);
   u.suspended = { at: C.now(), by: req.admin.id, reason: String(req.body.reason || '').slice(0, 300) };
   save();
@@ -315,6 +361,8 @@ router.post('/users/:id/logout', (req, res) => {
 });
 
 router.delete('/users/:id', (req, res) => {
+  confirmPassword(req);
+  log(req, 'Compte élève supprimé', `${data.users[req.params.id]?.name || req.params.id} (${data.users[req.params.id]?.phone || ''})`);
   const u = getUser(req.params.id);
   kick(u);
   C.deleteAccount(u, `${u.name} a été retiré(e) de Scola par l'administration`);
@@ -486,6 +534,20 @@ router.delete('/announcements/:id', (req, res) => { INBOX.remove(req.params.id);
 
 /* ---------------- Avertissements (après un signalement) ---------------- */
 
+// Mot de passe provisoire (élève qui a oublié le sien, ou ancien compte sans mot de passe) :
+// affiché une seule fois à l'administrateur, à changer à la première connexion.
+router.post('/users/:id/temp-password', (req, res) => {
+  const u = data.users[req.params.id];
+  if (!u || u.deleted) throw httpError(404, 'Utilisateur introuvable.');
+  log(req, 'Mot de passe provisoire créé', `${u.name} (${u.phone})`);
+  const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789';
+  const pw = Array.from({ length: 10 }, () => alphabet[crypto.randomInt(alphabet.length)]).join('');
+  u.passwordHash = bcrypt.hashSync(pw, 10);
+  u.mustChangePassword = true;
+  save();
+  res.json({ password: pw, phone: u.phone, name: u.name });
+});
+
 router.get('/warnings/default', (req, res) => res.json({ text: INBOX.DEFAULT_WARNING }));
 router.post('/users/:id/warn', (req, res) => res.json(INBOX.warn(req.admin, { userId: req.params.id, text: req.body.text, reportId: req.body.reportId })));
 router.post('/schools/:id/warn', (req, res) => res.json(INBOX.warn(req.admin, { schoolId: req.params.id, text: req.body.text, reportId: req.body.reportId })));
@@ -588,6 +650,8 @@ router.patch('/schools/:id', (req, res) => {
 });
 
 router.delete('/schools/:id', (req, res) => {
+  confirmPassword(req);
+  log(req, 'Établissement supprimé', data.schools[req.params.id]?.name || req.params.id);
   const s = getSchoolAdmin(req.params.id);
   for (const uid of s.followerIds || []) if (data.follows[uid]) delete data.follows[uid][s.id];
   for (const q of Object.values(data.inquiries)) if (q.schoolId === s.id) delete data.inquiries[q.id];
@@ -615,4 +679,4 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   res.json({ url: '/media/' + req.file.filename, name: req.file.originalname, size: req.file.size, mime: req.file.mimetype });
 });
 
-module.exports = { router, createAdmin };
+module.exports = { router, createAdmin, confirmPassword, log };
