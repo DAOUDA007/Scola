@@ -13,7 +13,49 @@ const disLabel = (s) => DISAPPEAR.find(x => x.value === s)?.label || 'Désactiv�
 export function openChatInfo(chat) {
   if (chat.type === 'group') return openGroup();
   if (chat.type === 'broadcast') return openBroadcast(chat);
+  if (chat.type === 'team') return openTeam(chat);
   return openUser(chat.peerId);
+}
+
+function openTeam(chat) {
+  nav.openDrawer({
+    title: 'Infos du groupe',
+    render: (body) => {
+      const draw = () => {
+        const c = S.chats.get(chat.id) || chat;
+        const chef = (c.admins || []).includes(S.me.id);
+        body.innerHTML = `<div class="profile-top">${avatar({ id: c.id, name: c.name }, 120, { group: true })}
+          <h3 class="edit-line" style="justify-content:center">${esc(c.name)}${chef ? ` <button class="icon-btn" data-a="name">${icon('edit', 'sm')}</button>` : ''}</h3>
+          <p>Groupe · ${c.members.length} membres</p>${c.description ? `<p class="faint" style="max-width:340px;margin:6px auto 0">${esc(c.description)}</p>` : ''}</div>
+          <div class="card"><div class="card-title"><span>${c.members.length} membres</span>${chef ? '<button class="btn text" data-a="add">Ajouter</button>' : ''}</div>
+            ${c.members.map(id => `<div class="item compact" data-uid="${id}">${avatar(user(id), 40)}<div class="body"><div class="top"><span class="name">${id === S.me.id ? 'Vous' : esc(user(id).name)}</span>${(c.admins || []).includes(id) ? '<span class="tag">Chef de classe</span>' : ''}</div></div>${chef && !(c.admins || []).includes(id) ? `<button class="btn text danger" data-rm="${id}">Retirer</button>` : ''}</div>`).join('')}</div>
+          <div class="card">${row('info', 'Groupe validé par l\u2019administration de Scola', 'Créé par le chef de classe avec des membres de la classe. L\u2019administration peut le supprimer.')}
+            ${row('logout', 'Quitter le groupe', '', 'data-a="leave"', 'danger')}</div>`;
+      };
+      draw();
+      live(body, 'chats', draw);
+      body.onclick = async (e) => {
+        const a = e.target.closest('[data-a]')?.dataset.a;
+        const rm = e.target.closest('[data-rm]')?.dataset.rm;
+        const uid = e.target.closest('[data-uid]')?.dataset.uid;
+        const c = S.chats.get(chat.id);
+        try {
+          if (rm) {
+            if (!(await confirmBox(`Retirer ${user(rm).name} du groupe ?`, '', { ok: 'Retirer', danger: true }))) return;
+            S.chats.set(c.id, await patch('/teams/' + c.id, { remove: [rm] })); emit('chats'); return;
+          }
+          if (uid && uid !== S.me.id) return openUser(uid);
+          if (a === 'name') { const v = await promptBox('Nom du groupe', { value: c.name, max: 60 }); if (v) { S.chats.set(c.id, await patch('/teams/' + c.id, { name: v })); emit('chats'); emit('chat:meta', c.id); } }
+          if (a === 'add') {
+            const outsiders = [...S.members.values()].filter(u => u.classId !== S.me.classId).map(u => u.id);
+            const ids = await pickMembers({ title: 'Ajouter des membres', multiple: true, min: 1, exclude: [...c.members, ...outsiders] });
+            if (ids) { S.chats.set(c.id, await patch('/teams/' + c.id, { add: ids })); emit('chats'); }
+          }
+          if (a === 'leave') { await deleteChat(c); nav.closeDrawer(); }
+        } catch (er) { fail(er); }
+      };
+    },
+  });
 }
 
 function row(ic, title, sub = '', attrs = '', cls = '') {

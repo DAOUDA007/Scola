@@ -19,6 +19,7 @@ const O = backendRequire('./src/orientation');
 const mail = backendRequire('./src/mail');
 const OF = backendRequire('./src/offers');
 const INBOX = backendRequire('./src/inbox');
+const SOCIAL = backendRequire('./src/social');
 const { data, save } = C;
 
 const router = express.Router();
@@ -40,6 +41,10 @@ function ownerId() {
   return data.meta.ownerAdminId;
 }
 const isOwner = (a) => !!a && a.id === ownerId();
+function cleanRights(p) {
+  const base = p && typeof p === 'object' ? p : DEFAULT_RIGHTS;
+  return Object.fromEntries(Object.keys(SECTIONS).map(k => [k, !!base[k]]));
+}
 function requireOwner(req) { if (!isOwner(req.admin)) throw httpError(403, 'Action réservée au propriétaire du site (administrateur principal).'); }
 // Actions graves : confirmation par le mot de passe de l'administrateur connecté.
 function confirmPassword(req) {
@@ -53,8 +58,39 @@ function log(req, action, target = '') {
   save();
 }
 
+// Zones de l'administration. Le propriétaire a tous les droits et décide de ceux des autres.
+// « Administrateurs » et le journal sont réservés au propriétaire.
+const SECTIONS = {
+  users: 'Utilisateurs', classes: 'Classes', reports: 'Signalements', schools: 'Établissements', groups: 'Groupes',
+  announce: 'Annonces', billing: 'Abonnements et paiements', campaigns: 'Campagnes publicitaires', offers: 'Offres et tarifs',
+};
+const DEFAULT_RIGHTS = { users: true, classes: true, reports: true, schools: true, groups: true, announce: true, billing: false, campaigns: false, offers: false };
+function rightsOf(a) {
+  if (isOwner(a)) return Object.fromEntries(Object.keys(SECTIONS).map(k => [k, true]));
+  return Object.fromEntries(Object.keys(SECTIONS).map(k => [k, !!(a.permissions || DEFAULT_RIGHTS)[k]]));
+}
+const can = (a, section) => rightsOf(a)[section];
+// Zone de chaque route (vérification côté serveur, quelle que soit l'interface).
+function sectionsFor(method, p) {
+  if (/^\/(me|catalog|upload|stats|warnings\/default)(\/|$)/.test(p)) return null;
+  if (/^\/(admins|log)(\/|$)/.test(p)) return 'owner';
+  if (/^\/billing\/campaigns/.test(p)) return ['campaigns'];
+  if (/^\/billing\/offers/.test(p)) return method === 'GET' ? ['offers', 'billing'] : ['offers'];
+  if (/^\/billing\//.test(p)) return ['billing'];
+  if (/^\/users\/[^/]+\/warn$/.test(p)) return ['users', 'reports'];
+  if (/^\/schools\/[^/]+\/warn$/.test(p)) return ['schools', 'reports'];
+  if (/^\/users/.test(p)) return ['users'];
+  if (/^\/classes/.test(p)) return ['classes'];
+  if (/^\/messages/.test(p)) return ['classes', 'reports'];
+  if (/^\/reports/.test(p)) return ['reports'];
+  if (/^\/(schools|posts)/.test(p)) return ['schools', 'reports'];
+  if (/^\/teams/.test(p)) return ['groups'];
+  if (/^\/(announce|announcements)/.test(p)) return ['announce'];
+  return 'owner';
+}
+
 function adminView(a, me) {
-  return { id: a.id, name: a.name, email: a.email, owner: isOwner(a), createdAt: a.createdAt, createdBy: a.createdBy ? (data.admins[a.createdBy]?.name || 'Administrateur supprimé') : null, lastLogin: a.lastLogin || null, mustChangePassword: !!a.mustChangePassword, me: a.id === me };
+  return { id: a.id, name: a.name, email: a.email, owner: isOwner(a), permissions: rightsOf(a), createdAt: a.createdAt, createdBy: a.createdBy ? (data.admins[a.createdBy]?.name || 'Administrateur supprimé') : null, lastLogin: a.lastLogin || null, mustChangePassword: !!a.mustChangePassword, me: a.id === me };
 }
 
 function createAdmin({ name, email, password, createdBy = null, mustChangePassword = false }) {
@@ -116,6 +152,14 @@ router.use((req, res, next) => {
   next();
 });
 
+// Droits de l'administrateur connecté sur la zone demandée.
+router.use((req, res, next) => {
+  const need = sectionsFor(req.method, req.path);
+  if (!need) return next();
+  if (need === 'owner' ? isOwner(req.admin) : need.some(k => can(req.admin, k))) return next();
+  res.status(403).json({ error: need === 'owner' ? 'Réservé au propriétaire du site.' : 'Vous n\'avez pas accès à cette partie de l\'administration. Demandez-le au propriétaire du site.' });
+});
+
 // Monétisation : abonnements, paiements et reçus, campagnes, offres et tarifs (/api/admin/billing/…).
 router.use(require('./monetisation'));
 
@@ -150,6 +194,8 @@ router.get('/admins', (req, res) => res.json(Object.values(data.admins).sort((x,
 
 router.post('/admins', (req, res) => {
   const a = createAdmin({ ...req.body, createdBy: req.admin.id, mustChangePassword: true });
+  a.permissions = cleanRights(req.body.permissions);
+  save();
   log(req, 'Administrateur ajouté', `${a.name} (${a.email})`);
   res.json(adminView(a, req.admin.id));
 });
@@ -167,6 +213,7 @@ router.patch('/admins/:id', (req, res) => {
     if (Object.values(data.admins).some(x => x.email === e && x.id !== a.id)) throw httpError(400, 'Adresse déjà utilisée.');
     a.email = e;
   }
+  if (b.permissions && a.id !== req.admin.id && !isOwner(a)) a.permissions = cleanRights(b.permissions);
   if (b.password) {
     checkPassword(b.password);
     a.passwordHash = bcrypt.hashSync(String(b.password), 10);
@@ -208,6 +255,8 @@ router.get('/log', (req, res) => res.json([...(data.adminLog || [])].reverse().s
 
 /* ---------------- Tableau de bord ---------------- */
 
+router.get('/sections', (req, res) => res.json({ sections: SECTIONS, defaults: DEFAULT_RIGHTS }));
+
 router.get('/stats', (req, res) => {
   const users = Object.values(data.users).filter(u => !u.deleted);
   const day = 86400e3;
@@ -233,6 +282,7 @@ router.get('/stats', (req, res) => {
     storage: { postgres: usesPostgres(), render: !!process.env.RENDER },
     planRequests: Object.values(data.planRequests || {}).filter(r => r.status === 'pending').length,
     paymentProofs: Object.values(data.paymentProofs || {}).filter(p => p.status === 'pending').length,
+    teamRequests: Object.values(data.teamRequests || {}).filter(r => r.status === 'pending').length,
     campaignQueue: Object.values(data.campaigns || {}).filter(c => ['awaiting_payment', 'in_review'].includes(c.status)).length,
     admins: Object.keys(data.admins).length,
     signups,
@@ -251,7 +301,7 @@ function userRow(u) {
     id: u.id, name: u.name, phone: u.phone, avatar: u.avatar, school: u.school, about: u.about,
     classId: u.classId, className: cls?.name || '—', country: cls?.country || '',
     createdAt: u.createdAt, lastSeen: u.lastSeen, online: C.isOnline(u.id),
-    suspended: u.suspended || null, hasPin: !!u.pinHash, hasPassword: !!u.passwordHash, restricted: !!cls?.restricted.includes(u.id),
+    suspended: u.suspended || null, hasPin: !!u.pinHash, hasPassword: !!u.passwordHash, classLeader: !!u.classLeader, restricted: !!cls?.restricted.includes(u.id),
   };
 }
 
@@ -548,6 +598,57 @@ router.post('/users/:id/temp-password', (req, res) => {
   res.json({ password: pw, phone: u.phone, name: u.name });
 });
 
+/* ---------------- Chefs de classe et groupes ---------------- */
+
+router.post('/users/:id/leader', (req, res) => {
+  const u = data.users[req.params.id];
+  if (!u || u.deleted) throw httpError(404, 'Utilisateur introuvable.');
+  u.classLeader = !!req.body.on;
+  save();
+  log(req, u.classLeader ? 'Chef de classe nommé' : 'Rôle de chef de classe retiré', `${u.name} — ${data.classes[u.classId]?.name || ''}`);
+  INBOX.notify(u.id, u.classLeader ? 'L\'administration de Scola vous a nommé chef de classe. Vous pouvez demander la création de groupes avec des membres de votre classe (Discussions › Nouvelle discussion › Créer un groupe).' : 'Votre rôle de chef de classe a été retiré par l\'administration de Scola.');
+  C.toUser(u.id, 'me:update', {});
+  res.json({ ok: true, classLeader: u.classLeader });
+});
+
+const teamReqView = (r) => ({
+  ...r, leaderName: data.users[r.by]?.name || 'Compte supprimé', className: data.classes[r.classId]?.name || '—',
+  memberNames: r.members.map(id => data.users[id]?.name || 'Compte supprimé'),
+  handledByName: r.handledBy ? data.admins[r.handledBy]?.name || '—' : null,
+});
+router.get('/teams/requests', (req, res) => {
+  let list = Object.values(data.teamRequests || {});
+  if (req.query.status) list = list.filter(r => r.status === req.query.status);
+  res.json(list.sort((a, b) => b.at - a.at).slice(0, 200).map(teamReqView));
+});
+router.post('/teams/requests/:id/approve', (req, res) => {
+  const r = data.teamRequests?.[req.params.id];
+  if (!r) throw httpError(404, 'Demande introuvable.');
+  const c = SOCIAL.approve(r, req.admin);
+  log(req, 'Groupe validé', `${c.name} (${c.members.length} membres)`);
+  res.json(teamReqView(r));
+});
+router.post('/teams/requests/:id/reject', (req, res) => {
+  const r = data.teamRequests?.[req.params.id];
+  if (!r) throw httpError(404, 'Demande introuvable.');
+  SOCIAL.reject(r, req.admin, req.body.reason);
+  log(req, 'Groupe refusé', r.name);
+  res.json(teamReqView(r));
+});
+router.get('/teams', (req, res) => {
+  res.json(Object.values(data.chats).filter(c => c.type === 'team').sort((a, b) => b.createdAt - a.createdAt).map(c => ({
+    id: c.id, name: c.name, description: c.description, createdAt: c.createdAt, members: c.members.length,
+    className: data.classes[c.classId]?.name || '—', leaderName: data.users[c.admins[0]]?.name || '—', messages: (data.messages[c.id] || []).length,
+  })));
+});
+router.delete('/teams/:id', (req, res) => {
+  confirmPassword(req);
+  const name = data.chats[req.params.id]?.name;
+  SOCIAL.removeTeam(req.params.id);
+  log(req, 'Groupe supprimé', name || req.params.id);
+  res.json({ ok: true });
+});
+
 router.get('/warnings/default', (req, res) => res.json({ text: INBOX.DEFAULT_WARNING }));
 router.post('/users/:id/warn', (req, res) => res.json(INBOX.warn(req.admin, { userId: req.params.id, text: req.body.text, reportId: req.body.reportId })));
 router.post('/schools/:id/warn', (req, res) => res.json(INBOX.warn(req.admin, { schoolId: req.params.id, text: req.body.text, reportId: req.body.reportId })));
@@ -647,6 +748,19 @@ router.patch('/schools/:id', (req, res) => {
   if (req.body.type && O.SCHOOL_TYPES[req.body.type]) s.type = req.body.type;
   save();
   res.json(schoolRow(s));
+});
+
+router.post('/schools/:id/temp-password', (req, res) => {
+  const s = data.schools[req.params.id];
+  if (!s || !['active', 'suspended'].includes(s.status)) throw httpError(400, 'Établissement introuvable ou pas encore activé.');
+  const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789';
+  const pw = Array.from({ length: 10 }, () => alphabet[crypto.randomInt(alphabet.length)]).join('');
+  s.passwordHash = bcrypt.hashSync(pw, 10);
+  s.mustChangePassword = true;
+  s.tokenVersion = (s.tokenVersion || 0) + 1;
+  save();
+  log(req, 'Mot de passe provisoire (établissement)', s.name);
+  res.json({ password: pw, email: s.email, name: s.name });
 });
 
 router.delete('/schools/:id', (req, res) => {

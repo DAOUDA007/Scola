@@ -77,6 +77,7 @@ const NAV = [
   ['classes', 'cap', 'Classes'],
   ['reports', 'flag', 'Signalements'],
   ['schools', 'megaphone', 'Établissements'],
+  ['groups', 'users', 'Groupes'],
   ['billing', 'checkSq', 'Abonnements'],
   ['campaigns', 'flash', 'Campagnes'],
   ['offers', 'star', 'Offres et tarifs'],
@@ -94,7 +95,7 @@ async function start() {
       <!-- Petit écran : menu en liste déroulante -->
       <button class="adm-menu-btn" data-menu aria-expanded="false" aria-controls="adm-links">${icon('more', 'sm')}<span data-current>Menu</span>${icon('chevD', 'sm')}</button>
       <div class="adm-links" id="adm-links">
-        ${NAV.map(([k, ic, l]) => `<a href="#/${k}" data-k="${k}">${icon(ic, 'sm')}<span>${l}</span></a>`).join('')}
+        ${NAV.filter(([k]) => allowed(k)).map(([k, ic, l]) => `<a href="#/${k}" data-k="${k}">${icon(ic, 'sm')}<span>${l}</span></a>`).join('')}
         <div class="spacer"></div>
         <a href="#" data-toggle-theme>${icon('moon', 'sm')}<span>Thème</span></a>
         <a href="/" target="_blank">${icon('ext', 'sm')}<span>Ouvrir Scola</span></a>
@@ -145,12 +146,24 @@ async function refreshBadge() {
     const st = await get('/stats');
     put('billing', (st.planRequests || 0) + (st.paymentProofs || 0), 'var(--brand)');
     put('campaigns', st.campaignQueue || 0, 'var(--brand)');
+    put('groups', st.teamRequests || 0, 'var(--brand)');
   } catch {}
 }
 setInterval(() => { if (tok.get() && ME) refreshBadge(); }, 30000);
 
+// Zone de chaque page ; le propriétaire voit tout, les autres selon les droits qu'il leur donne.
+const PAGE_SECTION = { users: 'users', classes: 'classes', reports: 'reports', schools: 'schools', groups: 'groups', announce: 'announce', billing: 'billing', receipt: 'billing', campaigns: 'campaigns', offers: 'offers', admins: 'owner' };
+function allowed(page) {
+  const sec = PAGE_SECTION[page];
+  if (!sec) return true;
+  if (ME?.owner) return true;
+  return sec === 'owner' ? false : !!ME?.permissions?.[sec];
+}
+
 function route() {
-  const [page, id] = (location.hash.replace(/^#\/?/, '') || 'dashboard').split('/');
+  if (!ME) return; // identité de l'administrateur pas encore chargée : start() relancera la page
+  let [page, id] = (location.hash.replace(/^#\/?/, '') || 'dashboard').split('/');
+  if (!allowed(page)) { toast('Vous n’avez pas accès à cette partie de l’administration.'); page = 'dashboard'; id = undefined; history.replaceState(null, '', '#/dashboard'); }
   $$('.adm-nav a[data-k]').forEach(a => a.classList.toggle('on', a.dataset.k === page));
   const cur = NAV.find(n => n[0] === page) || NAV[0];
   const lbl = $('[data-current]');
@@ -162,7 +175,7 @@ function route() {
   old.replaceWith(c);
   window.scrollTo(0, 0);
   c.innerHTML = '<div class="empty">Chargement…</div>';
-  const pages = { dashboard, users, classes, reports, schools, announce, admins, account, billing: MON.billing, campaigns: CMP.campaigns, offers: MON.offersPage };
+  const pages = { dashboard, users, classes, reports, schools, announce, admins, account, billing: MON.billing, campaigns: CMP.campaigns, offers: MON.offersPage, groups };
   const fn = pages[page] || dashboard;
   if (page === 'users' && id) return userDetail(c, id);
   if (page === 'classes' && id) return classDetail(c, id);
@@ -218,7 +231,8 @@ async function dashboard(c) {
     </div>
     <section class="panel"><h2>Dernières inscriptions</h2><div class="tbl-wrap">${userTable(s.recentUsers)}</div></section>
     <div data-finance></div>`;
-  MON.financePanel($('[data-finance]', c));
+  // Chiffre d'affaires et renouvellements : réservés aux droits « Abonnements et paiements ».
+  if (ME.owner || ME.permissions?.billing) MON.financePanel($('[data-finance]', c));
   bindRows(c);
   // Infobulle au survol des barres.
   const tip = h('<div class="chart-tip" hidden></div>');
@@ -245,7 +259,7 @@ function bindRows(c) {
 }
 
 function userBadges(u) {
-  return `${u.online ? '<span class="tag">En ligne</span> ' : ''}${u.suspended ? '<span class="tag red">Suspendu</span> ' : ''}${u.restricted ? '<span class="tag warn">Restreint</span> ' : ''}${u.hasPin ? `<span title="Vérification en deux étapes">${icon('lock', 'xs')}</span>` : ''}`;
+  return `${u.classLeader ? '<span class="tag founder">Chef de classe</span> ' : ''}${u.online ? '<span class="tag">En ligne</span> ' : ''}${u.suspended ? '<span class="tag red">Suspendu</span> ' : ''}${u.restricted ? '<span class="tag warn">Restreint</span> ' : ''}${u.hasPin ? `<span title="Vérification en deux étapes">${icon('lock', 'xs')}</span>` : ''}`;
 }
 function userTable(list) {
   if (!list.length) return '<div class="empty">Aucun utilisateur.</div>';
@@ -305,6 +319,7 @@ async function userDetail(c, id) {
         ${u.hasPin ? `<button class="btn ghost" data-a="pin">${icon('key', 'sm')} Réinitialiser le code PIN</button>` : ''}
         <button class="btn ghost" data-a="logout">${icon('laptop', 'sm')} Déconnecter tous ses appareils</button>
         <button class="btn ${u.suspended ? '' : 'danger'}" data-a="suspend">${icon('shield', 'sm')} ${u.suspended ? 'Réactiver le compte' : 'Suspendre le compte'}</button>
+        <button class="btn ghost" data-a="leader">${icon('star', 'sm')} ${u.classLeader ? 'Retirer le rôle de chef de classe' : 'Nommer chef de classe'}</button>
         <button class="btn ghost" data-a="temppw">${icon('key', 'sm')} Mot de passe provisoire${u.hasPassword ? '' : ' (aucun mot de passe)'}</button>
         <button class="btn ghost" data-a="warn">${icon('flag', 'sm')} Envoyer un avertissement</button>
         <button class="btn danger" data-a="delete">${icon('trash', 'sm')} Supprimer le compte</button>
@@ -317,6 +332,10 @@ async function userDetail(c, id) {
     try {
       if (a === 'edit') return editUser(u);
       if (a === 'warn') return sendWarning({ userId: u.id, name: u.name });
+      if (a === 'leader') {
+        if (!(await confirmBox(u.classLeader ? `Retirer le rôle de chef de classe à ${u.name} ?` : `Nommer ${u.name} chef de classe ?`, u.classLeader ? 'Ses groupes existants restent en place.' : 'Il pourra demander la création de groupes avec des membres de sa classe ; chaque groupe sera soumis à votre validation.', { ok: 'Confirmer' }))) return;
+        await post(`/users/${u.id}/leader`, { on: !u.classLeader }); toast(u.classLeader ? 'Rôle retiré' : 'Chef de classe nommé'); return userDetail(c, u.id);
+      }
       if (a === 'temppw') {
         if (!(await confirmBox(`Mot de passe provisoire pour ${u.name} ?`, 'Un nouveau mot de passe est créé et l’ancien ne fonctionne plus. Transmettez-le à l’élève en personne ou par un moyen sûr : il devra le changer à sa prochaine connexion.', { ok: 'Créer' }))) return;
         const r = await post(`/users/${u.id}/temp-password`);
@@ -559,6 +578,42 @@ async function announce(c) {
   };
 }
 
+/* ---------------- Groupes des chefs de classe ---------------- */
+async function groups(c) {
+  setTitle('Groupes');
+  const load = async () => {
+    const [reqs, teams] = await Promise.all([get('/teams/requests?status=pending'), get('/teams')]).catch(e => { fail(e); return [null, null]; });
+    if (!reqs) return;
+    c.innerHTML = `<p class="muted" style="margin-top:0">Les chefs de classe (nommés depuis la fiche d'un élève) demandent la création de groupes avec des membres de leur classe. Un groupe n'existe qu'après votre validation.</p>
+      <section class="panel"><h2>Demandes à valider (${reqs.length})</h2>${reqs.length ? reqs.map(r => `<div class="report" data-req="${r.id}">
+        <div class="row" style="flex-wrap:wrap"><b class="grow">${esc(r.name)}</b><span class="faint" style="font-size:12.5px">${esc(listTime(r.at))}</span></div>
+        <div style="font-size:14px;margin:4px 0">Chef de classe : <b>${esc(r.leaderName)}</b> · ${esc(r.className)}</div>
+        ${r.description ? `<div class="faint" style="font-size:13.5px">« ${esc(r.description)} »</div>` : ''}
+        <div style="font-size:13.5px;margin:6px 0">${r.members.length} membre(s) : ${esc(r.memberNames.join(', '))}</div>
+        <div class="actions"><button class="btn" data-ok>${icon('check', 'sm')} Valider</button><button class="btn text danger" data-no>Refuser</button></div></div>`).join('') : '<div class="empty">Aucune demande en attente.</div>'}</section>
+      <section class="panel"><h2>Groupes existants (${teams.length})</h2>${teams.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Groupe</th><th>Classe</th><th>Chef</th><th class="num">Membres</th><th class="num">Messages</th><th></th></tr></thead><tbody>
+        ${teams.map(t => `<tr data-team="${t.id}"><td><b>${esc(t.name)}</b><div class="faint" style="font-size:12px">${esc(listTime(t.createdAt))}</div></td><td>${esc(t.className)}</td><td>${esc(t.leaderName)}</td><td class="num">${t.members}</td><td class="num">${t.messages}</td><td class="num"><button class="btn text danger" data-del-team>Supprimer</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Aucun groupe.</div>'}</section>`;
+  };
+  c.onclick = async (e) => {
+    const r = e.target.closest('[data-req]')?.dataset.req;
+    try {
+      if (r && e.target.closest('[data-ok]')) { await post(`/teams/requests/${r}/approve`); toast('Groupe validé et créé'); refreshBadge(); return load(); }
+      if (r && e.target.closest('[data-no]')) {
+        const reason = await promptBox('Refuser ce groupe ?', { label: 'Motif (communiqué au chef de classe)', max: 300, multiline: true });
+        if (reason === null) return;
+        await post(`/teams/requests/${r}/reject`, { reason }); toast('Demande refusée'); refreshBadge(); return load();
+      }
+      const t = e.target.closest('[data-team]');
+      if (t && e.target.closest('[data-del-team]')) {
+        const password = await askPassword('Supprimer ce groupe ?', 'Le groupe et tous ses messages seront supprimés pour ses membres. Action irréversible.');
+        if (password === null) return;
+        await A('DELETE', '/teams/' + t.dataset.team, { password }); toast('Groupe supprimé'); return load();
+      }
+    } catch (er) { fail(er); }
+  };
+  load();
+}
+
 /* ---------------- Avertissements ---------------- */
 // Envoi d'un avertissement à un élève (boîte « Annonces » + notification) ou à un établissement
 // (en tête de son espace + e-mail), en général après un signalement.
@@ -696,6 +751,7 @@ async function schoolDetail(c, id) {
         ${['pending', 'code_sent'].includes(s.status) ? `<button class="btn danger" data-a="reject">${icon('x', 'sm')} Refuser la demande</button>` : ''}
         ${['active', 'suspended'].includes(s.status) ? `<button class="btn ghost" data-a="verify">${icon('check', 'sm')} ${s.verified ? 'Retirer le badge certifié' : 'Certifier l\'établissement'}</button>
           <button class="btn ${s.status === 'suspended' ? '' : 'danger'}" data-a="suspend">${icon('shield', 'sm')} ${s.status === 'suspended' ? 'Réactiver la chaîne' : 'Suspendre la chaîne'}</button>` : ''}
+        ${['active', 'suspended'].includes(s.status) ? `<button class="btn ghost" data-a="temppw">${icon('key', 'sm')} Mot de passe provisoire</button>` : ''}
         ${['active', 'suspended'].includes(s.status) ? `<button class="btn ghost" data-a="warn">${icon('flag', 'sm')} Envoyer un avertissement</button>` : ''}
         <button class="btn danger" data-a="delete">${icon('trash', 'sm')} Supprimer définitivement</button>
         <p class="faint" style="font-size:12.5px;margin:4px 0 0">Le code d'activation est le seul moyen pour l'établissement d'achever la création de son compte. Il doit lui parvenir sous 72 h.</p>
@@ -715,6 +771,12 @@ async function schoolDetail(c, id) {
       }
       if (!a) return;
       if (a === 'warn') { await sendWarning({ schoolId: id, name: s.name }); return; }
+      if (a === 'temppw') {
+        if (!(await confirmBox(`Mot de passe provisoire pour « ${s.name} » ?`, 'L’établissement est déconnecté et devra choisir un nouveau mot de passe à sa prochaine connexion. Transmettez-le par téléphone ou en personne.', { ok: 'Créer' }))) return;
+        const r = await post(`/schools/${id}/temp-password`);
+        modal({ title: 'Mot de passe provisoire', body: `<p style="margin-top:0">Pour <b>${esc(r.name)}</b> (${esc(r.email)}) :</p><div class="code-box">${esc(r.password)}</div><p class="hint">Il ne sera plus affiché.</p>`, buttons: [{ label: 'Copier', cls: 'text', onClick: () => { copyText(r.password); toast('Copié'); return false; } }, { label: 'Terminé', cls: 'text' }] });
+        return;
+      }
       if (a === 'code') {
         if (!(await confirmBox(s.status === 'pending' ? `Valider « ${s.name} » ?` : 'Générer un nouveau code ?', `Un code d'activation à usage unique sera envoyé à ${s.email}.${s.status === 'code_sent' ? ' L\'ancien code sera annulé.' : ''}`, { ok: 'Générer le code' }))) return;
         const r = await post(`/schools/${id}/code`);
@@ -750,7 +812,7 @@ async function admins(c) {
     const meOwner = !!list.find(x => x.me)?.owner;
     c.innerHTML = `<div class="toolbar"><span class="grow muted">Les administrateurs gèrent tout le site. Ce ne sont pas des comptes élèves.</span><button class="btn" data-add>${icon('userPlus', 'sm')} Ajouter un administrateur</button></div>
       <section class="panel"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nom</th><th>E-mail</th><th>Ajouté par</th><th>Créé le</th><th>Dernière connexion</th><th></th></tr></thead><tbody>
-      ${list.map(a => `<tr data-id="${a.id}"><td><b>${esc(a.name)}</b>${a.owner ? ' <span class="tag founder">Propriétaire</span>' : ''}${a.me ? ' <span class="tag">Vous</span>' : ''}${a.mustChangePassword ? ' <span class="tag warn">Mot de passe provisoire</span>' : ''}</td><td>${esc(a.email)}</td>
+      ${list.map(a => `<tr data-id="${a.id}"><td><b>${esc(a.name)}</b>${a.owner ? ' <span class="tag founder">Propriétaire</span>' : ''}${a.me ? ' <span class="tag">Vous</span>' : ''}${a.mustChangePassword ? ' <span class="tag warn">Mot de passe provisoire</span>' : ''}</td><td>${esc(a.email)}<div class="faint" style="font-size:12px">${a.owner ? 'Tous les droits' : esc(RIGHTS.filter(([k]) => a.permissions?.[k]).map(([, l]) => l).join(', ') || 'Aucun accès')}</div></td>
         <td>${esc(a.createdBy || '—')}</td><td>${esc(listTime(a.createdAt))}</td><td>${a.lastLogin ? esc(listTime(a.lastLogin)) : 'Jamais'}</td>
         <td class="num">${a.me || meOwner ? '<button class="btn text" data-edit>Modifier</button>' : ''}${meOwner && !a.me ? '<button class="btn text" data-owner>Transmettre la propriété</button><button class="btn text danger" data-del>Supprimer</button>' : ''}</td></tr>`).join('')}</tbody></table></div></section>
       <p class="hint">${meOwner ? 'Vous êtes le propriétaire du site : vous seul pouvez modifier ou supprimer les autres administrateurs, et transmettre ce rôle.' : 'Seul le propriétaire du site peut modifier ou supprimer un administrateur. Vous pouvez modifier votre propre compte.'}</p>
@@ -788,15 +850,21 @@ function askPassword(title, text) {
 }
 window.__askPassword = askPassword;
 
+const RIGHTS = [['users', 'Utilisateurs'], ['classes', 'Classes'], ['reports', 'Signalements'], ['schools', 'Établissements'], ['groups', 'Groupes'], ['announce', 'Annonces'],
+  ['billing', 'Abonnements et paiements', true], ['campaigns', 'Campagnes publicitaires', true], ['offers', 'Offres et tarifs', true]];
+
 function adminForm(a, done) {
   const body = h(`<div>
     <div class="field"><label>Nom</label><input class="input" data-n maxlength="60" value="${esc(a?.name || '')}"></div>
     <div class="field"><label>E-mail</label><input class="input" type="email" data-e value="${esc(a?.email || '')}"></div>
     <div class="field"><label>${a ? 'Nouveau mot de passe (laisser vide pour ne pas changer)' : 'Mot de passe provisoire'}</label><input class="input" type="text" data-p autocomplete="new-password" placeholder="8 caractères minimum">
-      <div class="hint">${a ? 'Un nouveau mot de passe déconnecte cet administrateur ; il devra le changer à sa prochaine connexion.' : 'Communiquez-le à la personne : elle devra le changer à sa première connexion.'}</div></div></div>`);
+      <div class="hint">${a ? 'Un nouveau mot de passe déconnecte cet administrateur ; il devra le changer à sa prochaine connexion.' : 'Communiquez-le à la personne : elle devra le changer à sa première connexion.'}</div></div>
+    ${a?.owner ? '' : `<div class="field"><label>Ce que cet administrateur peut voir et faire</label><div class="rights" data-rights>${RIGHTS.map(([k, l, sensitive]) => `<label class="chk"><input type="checkbox" data-r="${k}" ${(a ? a.permissions?.[k] : !sensitive) ? 'checked' : ''}> ${esc(l)}${sensitive ? ' <span class="tag warn">données sensibles</span>' : ''}</label>`).join('')}</div>
+      <div class="hint">« Administrateurs » et le journal des actions restent réservés au propriétaire. Un administrateur sans « Abonnements » ne voit pas non plus le chiffre d’affaires.</div></div>`}</div>`);
   if (!a) $('[data-p]', body).value = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6).toUpperCase();
   modal({ title: a ? 'Modifier l\'administrateur' : 'Ajouter un administrateur', body, buttons: [{ label: 'Annuler' }, { label: a ? 'Enregistrer' : 'Ajouter', cls: '', onClick: async () => {
     const payload = { name: $('[data-n]', body).value, email: $('[data-e]', body).value };
+    if (!a?.owner) payload.permissions = Object.fromEntries([...body.querySelectorAll('[data-r]')].map(x => [x.dataset.r, x.checked]));
     const p = $('[data-p]', body).value;
     if (p || !a) payload.password = p;
     if (a) await patch('/admins/' + a.id, payload); else await post('/admins', payload);

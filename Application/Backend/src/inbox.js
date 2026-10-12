@@ -50,7 +50,7 @@ function itemsFor(u) {
   }
   for (const n of Object.values(data.notices)) {
     if (n.userId !== u.id || n.deleted) continue;
-    out.push({ id: n.id, kind: 'warning', text: n.text, at: n.at, from: 'Administration Scola' });
+    out.push({ id: n.id, kind: n.kind === 'info' ? 'info' : 'warning', text: n.text, at: n.at, from: 'Administration Scola' });
   }
   return out.sort((a, b) => b.at - a.at);
 }
@@ -136,6 +136,16 @@ function warn(admin, { userId, schoolId, text, reportId }) {
   return n;
 }
 
+// Information personnelle (ex. groupe validé ou refusé) dans la boîte « Annonces » de l'élève.
+function notify(userId, text) {
+  const n = { id: C.uid('nt_'), kind: 'info', text: clip(text, 2000), at: C.now(), userId };
+  data.notices[n.id] = n;
+  save();
+  C.toUser(userId, 'inbox:new', { id: n.id });
+  push.sendTo(userId, { title: 'Scola', body: n.text, tag: 'info-' + n.id, url: '/?inbox=1', at: n.at });
+  return n;
+}
+
 function noticesOf({ userId, schoolId }) {
   return Object.values(data.notices).filter(n => (userId && n.userId === userId) || (schoolId && n.schoolId === schoolId))
     .sort((a, b) => b.at - a.at).map(n => ({ id: n.id, text: n.text, at: n.at, byName: n.byName, readAt: n.readAt || null }));
@@ -151,4 +161,4 @@ router.post('/inbox/read', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { router, publish, remove, adminList, warn, noticesOf, summary, DEFAULT_WARNING };
+module.exports = { router, publish, remove, adminList, warn, notify, noticesOf, summary, DEFAULT_WARNING };

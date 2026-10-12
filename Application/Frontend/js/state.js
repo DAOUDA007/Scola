@@ -43,9 +43,21 @@ export function displayName(id) {
   return user(id).name;
 }
 
+// Discussions : les profils des contacts hors de la classe (discussion privée, groupe) arrivent avec
+// la discussion et rejoignent l'annuaire local.
+export class ChatMap extends Map {
+  set(k, c) {
+    for (const p of [c?.peer, ...(c?.people || [])]) if (p && S.members && !S.members.has(p.id)) S.members.set(p.id, p);
+    return super.set(k, c);
+  }
+}
+export const isClassmate = (u) => !!u && u.classId === S.me?.classId;
+export const groupish = (chat) => chat?.type === 'group' || chat?.type === 'team';
+
 export function chatTitle(chat) {
   if (!chat) return '';
   if (chat.type === 'group') return S.cls?.name || 'Ma classe';
+  if (chat.type === 'team') return chat.name || 'Groupe';
   if (chat.type === 'broadcast') return chat.name || 'Liste de diffusion';
   if (chat.peerId === S.me.id) return `${S.me.name} (vous)`;
   return user(chat.peerId).name;
@@ -55,6 +67,7 @@ export function chatEntity(chat) {
   if (!chat) return null;
   if (chat.type === 'group') return { ...S.cls, icon: S.cls?.icon };
   if (chat.type === 'broadcast') return { id: chat.id, name: chat.name };
+  if (chat.type === 'team') return { id: chat.id, name: chat.name };
   return user(chat.peerId);
 }
 

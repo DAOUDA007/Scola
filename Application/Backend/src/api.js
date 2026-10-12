@@ -40,6 +40,7 @@ function getMsg(req, id = req.params.id) {
 }
 
 function classmates(user) { return C.classOf(user)?.memberIds || []; }
+const social = () => require('./social');
 
 function assertClassmate(user, otherId) {
   if (otherId !== user.id && !classmates(user).includes(otherId)) throw httpError(403, 'Cette personne n\'est pas dans votre classe.');
@@ -53,7 +54,7 @@ function pushUser(u) {
 }
 
 function selfView(u) {
-  return { ...C.publicUser(u, u.id), phone: u.phone, hasPassword: !!u.passwordHash, mustChangePassword: !!u.mustChangePassword, city: u.city || '', cityAsked: !!u.cityAsked, privacy: u.privacy, settings: u.settings, blocked: u.blocked, hasPin: !!u.pinHash, pinHint: u.pinHint || '', stickers: u.stickers || [], favStickers: u.favStickers || [] };
+  return { ...C.publicUser(u, u.id), phone: u.phone, classLeader: !!u.classLeader, hasPassword: !!u.passwordHash, mustChangePassword: !!u.mustChangePassword, city: u.city || '', cityAsked: !!u.cityAsked, privacy: u.privacy, settings: u.settings, blocked: u.blocked, hasPin: !!u.pinHash, pinHint: u.pinHint || '', stickers: u.stickers || [], favStickers: u.favStickers || [] };
 }
 
 function isMedia(u) { return typeof u === 'string' && /^\/media\/[a-f0-9]{32}(\.[a-z0-9]{1,7})?$/.test(u); }
@@ -115,7 +116,7 @@ function buildContent(user, chat, b) {
       break;
     }
     case 'contact': {
-      const o = assertClassmate(user, b.contact?.userId);
+      const o = social().assertReachable(user, b.contact?.userId);
       c.contact = { userId: o.id, name: o.name, phone: o.privacy.phone === 'all' ? o.phone : null };
       break;
     }
@@ -243,6 +244,7 @@ function myChats(user) {
       if (uc.hidden || (!s.last && !uc.pinned)) continue;
       out.push(s);
     } else if (chat.type === 'broadcast' && chat.ownerId === user.id) out.push(C.chatSummary(chat, user.id));
+    else if (chat.type === 'team' && chat.members.includes(user.id) && !C.getUC(user.id, chat.id).hidden) out.push(C.chatSummary(chat, user.id));
   }
   return out;
 }
@@ -281,7 +283,8 @@ router.get('/bootstrap', (req, res) => {
   res.json({
     me: selfView(u),
     class: cls && classView(cls, u.id),
-    members: (cls?.memberIds || []).map(id => C.publicUser(data.users[id], u.id)).filter(Boolean),
+    // Camarades de classe + contacts hors de la classe (discussions privées, groupes).
+    members: [...(cls?.memberIds || []).map(id => C.publicUser(data.users[id], u.id)), ...social().relatedProfiles(u)].filter(Boolean),
     chats: myChats(u),
     calls: Object.values(data.calls).filter(c => c.invited.includes(u.id) && !(c.hiddenFor || []).includes(u.id))
       .sort((a, b) => b.startedAt - a.startedAt).slice(0, 200).map(c => callView(c, u.id)),
@@ -334,6 +337,7 @@ router.patch('/me/privacy', (req, res) => {
   for (const k of ['lastSeen', 'avatar', 'about', 'phone']) if (['all', 'nobody'].includes(b[k])) p[k] = b[k];
   if (typeof b.readReceipts === 'boolean') p.readReceipts = b.readReceipts;
   if (typeof b.personalizedAds === 'boolean') p.personalizedAds = b.personalizedAds;
+  if (['all', 'class'].includes(b.contactable)) p.contactable = b.contactable;
   if (b.status && ['all', 'except', 'only'].includes(b.status.mode)) {
     p.status = { mode: b.status.mode, list: (b.status.list || []).filter(x => classmates(req.user).includes(x)) };
   }
@@ -492,7 +496,7 @@ router.delete('/me/block/:uid', (req, res) => {
 });
 
 router.get('/users/:id', (req, res) => {
-  const o = assertClassmate(req.user, req.params.id);
+  const o = social().assertReachable(req.user, req.params.id);
   const dm = data.chats[C.dmId(req.user.id, o.id)];
   const shared = dm ? C.visibleMessages(dm.id, req.user.id).filter(m => ['image', 'video', 'document', 'audio'].includes(m.type) && !m.deletedForAll && !m.viewOnce).length : 0;
   res.json({ ...C.publicUser(o, req.user.id), blockedByMe: req.user.blocked.includes(o.id), sharedMedia: shared });
@@ -559,7 +563,7 @@ router.post('/reports', (req, res) => {
     const { m } = getMsg(req, b.messageId);
     r.message = { id: m.id, chatId: m.chatId, senderId: m.senderId, text: C.snippet(m), media: m.media?.url || null, at: m.createdAt };
     r.userId = m.senderId;
-  } else if (b.userId) r.userId = assertClassmate(req.user, b.userId).id;
+  } else if (b.userId) r.userId = social().assertReachable(req.user, b.userId).id;
   else throw httpError(400, 'Rien à signaler.');
   data.reports.push(r);
   if (b.block && r.userId && r.userId !== req.user.id && !req.user.blocked.includes(r.userId)) req.user.blocked.push(r.userId);
@@ -570,7 +574,7 @@ router.post('/reports', (req, res) => {
 /* ---------------- Discussions ---------------- */
 
 router.post('/chats/dm/:uid', (req, res) => {
-  const o = assertClassmate(req.user, req.params.uid);
+  const o = social().assertReachable(req.user, req.params.uid);
   const chat = C.ensureDm(req.user.id, o.id);
   const uc = C.getUC(req.user.id, chat.id);
   uc.hidden = false;
@@ -867,7 +871,7 @@ router.post('/messages/forward', (req, res) => {
   const chatIds = [...new Set(req.body.chatIds || [])];
   const userIds = [...new Set(req.body.userIds || [])];
   const targets = chatIds.map(id => getChat(req, id));
-  for (const u of userIds) { assertClassmate(req.user, u); targets.push(C.ensureDm(req.user.id, u)); }
+  for (const u of userIds) { social().assertReachable(req.user, u); targets.push(C.ensureDm(req.user.id, u)); }
   const msgs = ids.map(id => getMsg(req, id).m).filter(m => !m.deletedForAll && m.type !== 'system' && !m.viewOnce).sort((a, b) => a.createdAt - b.createdAt);
   const frequent = msgs.some(m => (m.forwardCount || 0) >= 4);
   if (frequent && targets.length > 1) throw httpError(400, 'Les messages transférés de nombreuses fois ne peuvent être envoyés qu\'à une seule discussion.');

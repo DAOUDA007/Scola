@@ -1,7 +1,7 @@
 // Point d'entrée : démarrage, mise en page, connexion temps réel, notifications.
 import { $, $$, h, icon, esc, debounce } from './util.js';
 import { get, post, token, setUnauthorizedHandler } from './api.js';
-import { S, emit, on, upsertMsg, chatTitle, chatEntity, isMuted, preview, user, totalUnread } from './state.js';
+import { S, emit, on, ChatMap, groupish, upsertMsg, chatTitle, chatEntity, isMuted, preview, user, totalUnread } from './state.js';
 import { toast, banner, sound, closeMenus, pushPage } from './ui.js';
 import { nav } from './nav.js';
 import { startAuth } from './auth.js';
@@ -67,7 +67,7 @@ function applyBootstrap(b) {
   S.clockSkew = (b.serverTime || Date.now()) - Date.now();
   S.members = new Map(b.members.map(u => [u.id, u]));
   S.members.set(b.me.id, b.me);
-  S.chats = new Map(b.chats.map(c => [c.id, c]));
+  S.chats = new ChatMap(b.chats.map(c => [c.id, c]));
   S.calls = b.calls;
   applyTheme();
 }
@@ -292,7 +292,13 @@ function connect() {
     const m = S.msgs.get(chatId)?.find(x => x.id === id);
     showNotif({ chat, title: chatTitle(chat), text: `${user(by).name} a réagi ${emoji} à : ${m ? preview(m) : 'votre message'}` });
   });
-  socket.on('chat:update', (c) => { S.chats.set(c.id, c); emit('chats'); emit('chat:meta', c.id); });
+  socket.on('chat:update', async (c) => {
+    // Groupe créé, modifié ou dont on a été retiré : on recharge la discussion.
+    if (!c.type) { try { c = await get('/chats/' + c.id); } catch { S.chats.delete(c.id); if (S.current === c.id) nav.closeChat(); emit('chats'); return; } }
+    S.chats.set(c.id, c); emit('chats'); emit('chat:meta', c.id);
+  });
+  socket.on('chat:removed', ({ id }) => { S.chats.delete(id); if (S.current === id) nav.closeChat(); emit('chats'); toast('Un groupe a été supprimé par l\u2019administration.'); });
+  socket.on('me:update', () => nav.refresh?.().catch(() => {}));
   socket.on('chat:remove', ({ chatId }) => {
     S.chats.delete(chatId); S.msgs.delete(chatId);
     if (S.current === chatId) nav.closeChat();
@@ -352,10 +358,10 @@ function notifyMessage(m, chat, viewing) {
   if (isMuted(chat)) return;
   const n = S.me.settings.notifications;
   const mentioned = m.mentions?.includes(S.me.id) || m.meta?.announce;
-  if (chat.type === 'group' ? !n.groups && !mentioned : !n.messages) return;
+  if (groupish(chat) ? !n.groups && !mentioned : !n.messages) return;
   const author = m.meta?.announce ? '📢 Administration' : user(m.senderId).name;
-  const title = chat.type === 'group' ? chatTitle(chat) : author;
-  const body = n.preview ? (chat.type === 'group' ? `${author} : ` : '') + preview(m) : 'Nouveau message';
+  const title = groupish(chat) ? chatTitle(chat) : author;
+  const body = n.preview ? (groupish(chat) ? `${author} : ` : '') + preview(m) : 'Nouveau message';
   showNotif({ chat, title, text: body, tag: chat.id, msgId: m.id });
 }
 

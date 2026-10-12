@@ -148,7 +148,7 @@ export function msgHTML(m, prev, chat) {
   if (m.type === 'system') return `<div class="sys" data-id="${esc(m.id)}">${esc(m.text)}</div>`;
   const mine = m.senderId === S.me.id;
   const first = !sameGroup(prev, m);
-  const group = chat?.type === 'group';
+  const group = chat?.type === 'group' || chat?.type === 'team';
   const hasReact = !m.deleted && Object.keys(m.reactions || {}).length > 0;
   let inner = '';
   let bubbleCls = '';

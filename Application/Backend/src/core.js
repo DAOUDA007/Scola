@@ -113,11 +113,12 @@ function publicUser(u, viewerId) {
     classId: u.classId,
     joinedAt: u.createdAt,
     avatar: self || (p.avatar === 'all' && !hiddenFromViewer) ? u.avatar : null,
-    about: self || (p.about === 'all' && !hiddenFromViewer) ? u.about : null,
+    about: self || (p.about === 'all' && !hiddenFromViewer && viewer?.classId === u.classId) ? u.about : null,
     phone: self || p.phone === 'all' ? u.phone : null,
   };
   const reciprocal = viewer && viewer.privacy.lastSeen === 'all';
-  if (self || (p.lastSeen === 'all' && reciprocal && !hiddenFromViewer)) {
+  // « Vu à » et « en ligne » : seulement entre camarades de classe.
+  if (self || (p.lastSeen === 'all' && reciprocal && !hiddenFromViewer && viewer.classId === u.classId)) {
     out.online = isOnline(u.id);
     out.lastSeen = u.lastSeen;
   }
@@ -268,7 +269,15 @@ function chatSummary(chat, viewerId) {
     unread, mentioned, state: uc,
     pinnedMsgs: (chat.pinnedMsgs || []).filter(p => p.until > now()).map(p => p.id),
   };
-  if (chat.type === 'dm') out.peerId = chat.members.find(x => x !== viewerId) || viewerId;
+  if (chat.type === 'dm') {
+    out.peerId = chat.members.find(x => x !== viewerId) || viewerId;
+    // Contact hors de la classe : son profil public accompagne la discussion.
+    if (data.users[out.peerId]?.classId !== data.users[viewerId]?.classId) out.peer = publicUser(data.users[out.peerId], viewerId);
+  }
+  if (chat.type === 'team') {
+    Object.assign(out, { name: chat.name, description: chat.description || '', members: chat.members, admins: chat.admins, classId: chat.classId });
+    out.people = chat.members.filter(id => data.users[id]?.classId !== data.users[viewerId]?.classId).map(id => publicUser(data.users[id], viewerId)).filter(Boolean);
+  }
   if (chat.type === 'broadcast') { out.name = chat.name; out.recipients = chat.recipients; }
   return out;
 }

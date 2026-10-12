@@ -160,7 +160,7 @@ async function sendCode(phone, purpose, ip) {
   const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');
   data.otps[phone] = { code, purpose, expires: C.now() + 10 * 60_000, tries: 0, sentAt: C.now() };
   save();
-  const what = { signup: 'pour créer votre compte', reset: 'pour choisir un nouveau mot de passe', number: 'pour confirmer votre nouveau numéro' }[purpose];
+  const what = { signup: 'pour créer votre compte', reset: 'pour choisir un nouveau mot de passe', number: 'pour confirmer votre nouveau numéro', school: 'pour choisir le nouveau mot de passe de votre établissement' }[purpose];
   await sendSms(phone, `Scola : votre code ${what} est ${code}. Ne le donnez à personne.`);
 }
 function checkCode(phone, purpose, code) {

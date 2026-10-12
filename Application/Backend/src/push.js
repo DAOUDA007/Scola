@@ -62,7 +62,7 @@ function notifyMessage(m) {
   if (m.type === 'system' && !announce) return;
   const sender = m.senderId ? data.users[m.senderId] : null;
   const targets = announce ? C.chatMembers(chat) : (m.recipients || []);
-  const cls = chat.type === 'group' ? data.classes[chat.id] : null;
+  const cls = chat.type === 'group' ? data.classes[chat.id] : chat.type === 'team' ? { name: chat.name } : null;
   for (const uid of targets) {
     if (uid === m.senderId || (m.deletedFor || []).includes(uid)) continue;
     const u = data.users[uid];
@@ -72,7 +72,7 @@ function notifyMessage(m) {
     const uc = C.getUC(uid, chat.id);
     const muted = uc.mutedUntil === -1 || uc.mutedUntil > C.now();
     if (muted && !announce) continue;
-    if (chat.type === 'group' ? (!n.groups && !mentioned && !announce) : !n.messages) continue;
+    if (chat.type === 'group' || chat.type === 'team' ? (!n.groups && !mentioned && !announce) : !n.messages) continue;
     const who = announce ? '📢 Administration' : (sender?.name || 'Scola');
     const title = cls ? cls.name : who;
     const text = n.preview === false ? (announce ? 'Nouvelle annonce' : 'Nouveau message') : (cls ? `${mentioned ? '@ ' : ''}${who} : ` : '') + previewOf(m);

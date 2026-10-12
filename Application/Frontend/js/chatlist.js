@@ -1,7 +1,7 @@
 // Onglet Discussions : liste, filtres, recherche, archives et actions sur les discussions.
 import { $, h, esc, icon, avatar, listTime, fold, debounce, formatText, hhmm, morph } from './util.js';
 import { get, post, patch, del } from './api.js';
-import { S, on, emit, user, chatTitle, chatEntity, isMuted, preview, sortedChats, draft, displayName } from './state.js';
+import { S, on, emit, user, chatTitle, chatEntity, isMuted, preview, sortedChats, draft, displayName, isClassmate } from './state.js';
 import { toast, fail, ctxMenu, confirmBox, choose, pickMembers, pushPage, promptBox, modal, touchActive } from './ui.js';
 import { nav } from './nav.js';
 import * as INB from './inbox.js';
@@ -46,14 +46,15 @@ export function chatItem(chat, { active = false } = {}) {
   else if (dr) prev = `<span class="draft">Brouillon :</span> <span>${esc(dr)}</span>`;
   else if (m) {
     const mine = m.senderId === S.me.id && m.type !== 'system';
-    const who = chat.type === 'group' && m.senderId && m.type !== 'system' && !m.deleted ? `${esc(mine ? 'Vous' : user(m.senderId).name.split(' ')[0])} : ` : '';
+    const who = (chat.type === 'group' || chat.type === 'team') && m.senderId && m.type !== 'system' && !m.deleted ? `${esc(mine ? 'Vous' : user(m.senderId).name.split(' ')[0])} : ` : '';
     prev = `${mine && !m.deleted ? tickIcon(m.status) : ''}${m.deleted ? icon('ban', 'xs') : ''}<span>${who}${esc(preview(m))}</span>`;
   } else if (chat.type === 'group') prev = `<span>${S.cls?.memberCount || 0} membres</span>`;
+  else if (chat.type === 'team') prev = `<span>${chat.members?.length || 0} membres</span>`;
   const unread = chat.unread || (st.markedUnread ? 1 : 0);
   const muted = isMuted(chat);
   const showDot = st.markedUnread && !chat.unread;
   return `<div class="item ${active ? 'on' : ''} ${unread ? 'unread' : ''}" data-chat="${chat.id}">
-    <div class="av-wrap">${avatar(ent, 49, { group: chat.type === 'group', broadcast: chat.type === 'broadcast' })}</div>
+    <div class="av-wrap">${avatar(ent, 49, { group: chat.type === 'group' || chat.type === 'team', broadcast: chat.type === 'broadcast' })}</div>
     <div class="body">
       <div class="top"><span class="name">${esc(title)}</span><span class="time">${listTime(m?.createdAt || chat.createdAt)}</span></div>
       <div class="bot"><span class="prev">${prev}</span>
@@ -146,7 +147,7 @@ function drawList(list, q) {
   let chats = all.filter(c => !c.state?.archived);
   if (filter === 'unread') chats = chats.filter(c => c.unread || c.state?.markedUnread);
   if (filter === 'fav') chats = chats.filter(c => c.state?.favorite);
-  if (filter === 'groups') chats = chats.filter(c => c.type === 'group');
+  if (filter === 'groups') chats = chats.filter(c => c.type === 'group' || c.type === 'team');
   if (filter === 'broadcast') chats = chats.filter(c => c.type === 'broadcast');
   const unreadArch = archived.filter(c => c.unread).length;
   morph(list, (archived.length && filter === 'all' ? `<div class="archived-row" data-archived data-key="archived">${icon('archive')}<span class="grow">Archivées</span>${unreadArch ? `<span class="faint" style="color:var(--badge);font-weight:600">${unreadArch}</span>` : `<span class="faint">${archived.length}</span>`}</div>` : '')
@@ -249,6 +250,11 @@ export async function clearChat(chat) {
 
 export async function deleteChat(chat) {
   if (chat.type === 'group') return toast('Le groupe de votre classe ne peut pas être supprimé ni quitté.');
+  if (chat.type === 'team') {
+    if (!(await confirmBox(`Quitter le groupe « ${chat.name} » ?`, 'Vous ne recevrez plus ses messages. Le chef de classe pourra vous y ajouter de nouveau.', { ok: 'Quitter', danger: true }))) return;
+    try { await post(`/teams/${chat.id}/leave`); S.chats.delete(chat.id); if (S.current === chat.id) nav.closeChat(); emit('chats'); toast('Vous avez quitté le groupe'); } catch (e) { fail(e); }
+    return;
+  }
   const ok = await confirmBox(chat.type === 'broadcast' ? 'Supprimer cette liste de diffusion ?' : `Supprimer la discussion avec ${chatTitle(chat)} ?`, 'Cette action est définitive sur vos appareils.', { ok: 'Supprimer', danger: true });
   if (!ok) return;
   try { await del('/chats/' + chat.id); } catch (e) { fail(e); }
@@ -296,7 +302,7 @@ export function chatMenu(chat, anchor) {
     { icon: 'heart', label: st.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris', onClick: () => setState(chat, { favorite: !st.favorite }) },
     '-',
     { icon: 'x', label: 'Effacer la discussion', onClick: () => clearChat(chat) },
-    chat.type !== 'group' && { icon: 'trash', label: 'Supprimer la discussion', danger: true, onClick: () => deleteChat(chat) },
+    chat.type !== 'group' && { icon: 'trash', label: chat.type === 'team' ? 'Quitter le groupe' : 'Supprimer la discussion', danger: true, onClick: () => deleteChat(chat) },
   ]);
 }
 
@@ -314,12 +320,17 @@ export function newChatPage(side) {
     render: (body) => {
       body.innerHTML = `<div class="search-bar"><div class="search-box">${icon('search', 'sm')}<input placeholder="Rechercher un camarade" data-q></div></div>
         <div class="menu-row" data-a="group"><div class="av" style="--s:42px;background:var(--brand)">${icon('cap')}</div><div class="txt"><b>${esc(S.cls?.name || 'Ma classe')}</b><small>Groupe de la classe · ${S.cls?.memberCount || 0} membres</small></div></div>
+        ${S.me.classLeader ? `<div class="menu-row" data-a="team"><div class="av" style="--s:42px;background:var(--brand)">${icon('users')}</div><div class="txt">Créer un groupe<small>Chef de classe · validé par l'administration</small></div></div>` : ''}
+        <div class="menu-row" data-a="contacts"><div class="av" style="--s:42px;background:var(--brand)">${icon('user')}</div><div class="txt">Mes contacts sur Scola<small>Trouver les contacts de mon téléphone qui utilisent Scola</small></div></div>
+        <div class="menu-row" data-a="phone"><div class="av" style="--s:42px;background:var(--brand)">${icon('phone')}</div><div class="txt">Écrire à un numéro<small>Élève ou étudiant inscrit sur Scola</small></div></div>
         <div class="menu-row" data-a="broadcast"><div class="av" style="--s:42px;background:var(--brand)">${icon('megaphone')}</div><div class="txt">Nouvelle liste de diffusion</div></div>
         <div class="menu-row" data-a="self"><div class="av" style="--s:42px;background:var(--brand)">${icon('user')}</div><div class="txt">Message à moi-même<small>Notes, rappels, brouillons de devoirs</small></div></div>
-        <div class="section-title">Camarades de classe</div><div data-list></div>`;
+        <div class="section-title">Camarades de classe</div><div data-list></div><div data-others></div>`;
       const draw = () => {
         const f = fold($('[data-q]', body).value);
-        const people = [...S.members.values()].filter(u => !u.deleted && u.id !== S.me.id && fold(u.name).includes(f)).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+        const all = [...S.members.values()].filter(u => !u.deleted && u.id !== S.me.id && fold(u.name).includes(f)).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+        const people = all.filter(isClassmate), others = all.filter(u => !isClassmate(u));
+        $('[data-others]', body).innerHTML = others.length ? `<div class="section-title">Autres contacts</div>${others.map(u => `<div class="item compact" data-user="${u.id}">${avatar(u, 42)}<div class="body"><div class="top"><span class="name">${esc(u.name)}</span></div><div class="bot"><span class="prev">${esc(u.school || 'Hors de ma classe')}</span></div></div></div>`).join('')}` : '';
         $('[data-list]', body).innerHTML = people.map(u => `<div class="item compact" data-user="${u.id}">${avatar(u, 42)}<div class="body"><div class="top"><span class="name">${esc(u.name)}</span></div><div class="bot"><span class="prev">${esc(u.about || '')}</span></div></div></div>`).join('') || '<div class="empty">Aucun camarade trouvé. Invite ta classe à rejoindre Scola !</div>';
       };
       draw();
@@ -329,6 +340,9 @@ export function newChatPage(side) {
         const uid = a === 'self' ? S.me.id : e.target.closest('[data-user]')?.dataset.user;
         if (a === 'group') return nav.openChat(S.cls.id);
         if (a === 'broadcast') return newBroadcast();
+        if (a === 'team') return newTeam();
+        if (a === 'contacts') return phoneContacts(side);
+        if (a === 'phone') return writeToNumber();
         if (!uid) return;
         try { const c = await post('/chats/dm/' + uid); S.chats.set(c.id, c); emit('chats'); nav.openChat(c.id); body.closest('.page').close(); } catch (er) { fail(er); }
       });
@@ -336,8 +350,56 @@ export function newChatPage(side) {
   });
 }
 
+// Chef de classe : demande de création d'un groupe (validée par l'administration).
+export async function newTeam() {
+  const outsiders = [...S.members.values()].filter(u => !isClassmate(u)).map(u => u.id);
+  const ids = await pickMembers({ title: 'Membres du groupe', multiple: true, min: 2, exclude: [S.me.id, ...outsiders], okLabel: 'Suivant' });
+  if (!ids) return;
+  const body = h(`<div><div class="field"><label>Nom du groupe</label><input class="input" data-n maxlength="60" placeholder="Ex. Groupe de TP réseaux"></div>
+    <div class="field"><label>Description (facultatif)</label><textarea class="input" data-d rows="2" maxlength="300" placeholder="À quoi sert ce groupe ?"></textarea></div>
+    <p class="hint">${ids.length} membre(s) de votre classe. Le groupe sera créé après validation par l'administration de Scola ; vous serez prévenu dans vos Annonces.</p></div>`);
+  modal({ title: 'Créer un groupe', body, buttons: [{ label: 'Annuler' }, { label: 'Envoyer la demande', cls: 'text', onClick: async () => {
+    await post('/teams/requests', { name: $('[data-n]', body).value, description: $('[data-d]', body).value, members: ids });
+    toast('Demande envoyée à l\u2019administration');
+  } }] });
+}
+
+// Contacts du téléphone (Android / Chrome) : qui utilise Scola ?
+async function phoneContacts(side) {
+  if (!('contacts' in navigator && 'select' in navigator.contacts)) {
+    toast('Votre navigateur ne permet pas d\u2019accéder aux contacts : utilisez « Écrire à un numéro ».');
+    return writeToNumber();
+  }
+  let picked;
+  try { picked = await navigator.contacts.select(['name', 'tel'], { multiple: true }); } catch { return; }
+  if (!picked?.length) return;
+  let found;
+  try { found = await post('/contacts/find', { contacts: picked.map(c => ({ name: (c.name || [])[0] || '', phones: c.tel || [] })) }); } catch (e) { return fail(e); }
+  pushPage(side, {
+    title: 'Mes contacts sur Scola',
+    render: (body) => {
+      body.innerHTML = found.length ? found.map(u => `<div class="item compact" data-user="${u.id}">${avatar(u, 42)}<div class="body"><div class="top"><span class="name">${esc(u.contactName || u.name)}</span></div><div class="bot"><span class="prev">${esc(u.name)}${u.classmate ? ' · camarade de classe' : ''}</span></div></div></div>`).join('')
+        : `<div class="empty">${icon('user')}Aucun de ces contacts n'est joignable sur Scola.<br><small class="faint">Invitez-les à rejoindre Scola !</small></div>`;
+      body.onclick = async (e) => {
+        const it = e.target.closest('[data-user]');
+        if (!it) return;
+        const u = found.find(x => x.id === it.dataset.user);
+        if (!S.members.has(u.id)) S.members.set(u.id, u);
+        try { const c = await post('/chats/dm/' + u.id).catch(() => null) || await post('/chats/dm-phone', { phone: picked.flatMap(p => p.tel || []).find(Boolean) }); S.chats.set(c.id, c); emit('chats'); nav.openChat(c.id); } catch (er) { fail(er); }
+      };
+    },
+  });
+}
+
+async function writeToNumber() {
+  const phone = await promptBox('Écrire à un numéro', { placeholder: 'Ex. 07 00 00 00 00 ou +225 07 00 00 00 00', max: 25, label: 'Numéro de téléphone', hint: 'La personne doit être inscrite sur Scola comme élève ou étudiant.' });
+  if (!phone) return;
+  try { const c = await post('/chats/dm-phone', { phone }); S.chats.set(c.id, c); emit('chats'); nav.openChat(c.id); } catch (e) { fail(e); }
+}
+
 export async function newBroadcast() {
-  const ids = await pickMembers({ title: 'Nouvelle diffusion', multiple: true, min: 2, exclude: [S.me.id], okLabel: 'Créer' });
+  const outsidersB = [...S.members.values()].filter(u => !isClassmate(u)).map(u => u.id);
+  const ids = await pickMembers({ title: 'Nouvelle diffusion', multiple: true, min: 2, exclude: [S.me.id, ...outsidersB], okLabel: 'Créer' });
   if (!ids) return;
   const name = await promptBox('Nom de la liste', { placeholder: 'Ex. Groupe de TD 3', max: 60, hint: 'Seules les personnes qui vous ont dans leurs discussions recevront vos messages diffusés, en privé.' });
   try { const c = await post('/broadcasts', { recipients: ids, name: name || '' }); S.chats.set(c.id, c); emit('chats'); nav.openChat(c.id); } catch (e) { fail(e); }

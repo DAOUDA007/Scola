@@ -9,7 +9,7 @@ const express = backendRequire('express');
 const C = backendRequire('./src/core');
 const O = backendRequire('./src/orientation');
 const mail = backendRequire('./src/mail');
-const { httpError, bcrypt, SECRET, jwt } = backendRequire('./src/auth');
+const { httpError, bcrypt, SECRET, jwt, SMS_ENABLED, sendCode, checkCode } = backendRequire('./src/auth');
 const { upload, cleanMedia } = backendRequire('./src/api');
 const { storeMedia } = backendRequire('./src/db');
 const OF = backendRequire('./src/offers');
@@ -30,7 +30,7 @@ const isMedia = (u) => typeof u === 'string' && /^\/media\/[a-f0-9]{32}(\.[a-z0-
 function selfView(s) {
   return {
     ...O.channelView(s), status: s.status, requestedAt: s.requestedAt, activatedAt: s.activatedAt || null,
-    manager: s.manager, email: s.email, mustChangePassword: false,
+    manager: s.manager, email: s.email, mustChangePassword: !!s.mustChangePassword,
     // L'établissement voit toujours ses propres contenus, même masqués aux élèves par sa formule.
     formations: s.formations || [], gallery: s.gallery || [], admissions: s.admissions || null,
     offer: { ...OF.offerState(s), banner: B.banner(s) },
@@ -160,6 +160,39 @@ router.post('/activate', (req, res) => {
   res.json({ token: token(s), school: selfView(s) });
 });
 
+/* ---------------- Mot de passe oublié ---------------- */
+// Avec les SMS (téléphone Android textbee) : code envoyé au numéro de l'établissement.
+// Sinon : l'administration de Scola donne un mot de passe provisoire (fiche de l'établissement).
+function schoolPhone(s) {
+  const raw = String(s.phone || '').trim();
+  const d = raw.replace(/\D/g, '');
+  if (!d) return null;
+  if (raw.startsWith('+')) return '+' + d;
+  if (raw.startsWith('00')) return '+' + d.slice(2);
+  return d.length === 10 ? '+225' + d : '+' + d;
+}
+router.post('/password/forgot', async (req, res) => {
+  limit(req);
+  const s = Object.values(data.schools).find(x => x.email === normEmail(req.body.email) && x.status === 'active');
+  if (!SMS_ENABLED) return res.json({ sms: false });
+  // Réponse identique que l'e-mail existe ou non (pas de divulgation des comptes).
+  if (!s || !schoolPhone(s)) { failed(req); return res.json({ sms: true, hint: null }); }
+  await sendCode(schoolPhone(s), 'school', req.ip);
+  res.json({ sms: true, hint: schoolPhone(s).slice(-2) });
+});
+router.post('/password/reset', (req, res) => {
+  limit(req);
+  const s = Object.values(data.schools).find(x => x.email === normEmail(req.body.email) && x.status === 'active');
+  if (!s || !schoolPhone(s)) { failed(req); throw httpError(400, 'Code incorrect ou expiré.'); }
+  try { checkCode(schoolPhone(s), 'school', req.body.code); } catch (e) { failed(req); throw e; }
+  checkPassword(req.body.password);
+  s.passwordHash = bcrypt.hashSync(String(req.body.password), 10);
+  s.tokenVersion = (s.tokenVersion || 0) + 1;
+  s.mustChangePassword = false;
+  save();
+  res.json({ token: token(s), school: selfView(s) });
+});
+
 router.post('/login', (req, res) => {
   limit(req);
   const s = Object.values(data.schools).find(x => x.email === normEmail(req.body.email));
@@ -203,6 +236,7 @@ router.patch('/me/password', (req, res) => {
   checkPassword(req.body.password);
   s.passwordHash = bcrypt.hashSync(String(req.body.password), 10);
   s.tokenVersion = (s.tokenVersion || 0) + 1;
+  s.mustChangePassword = false;
   save();
   res.json({ token: token(s) });
 });

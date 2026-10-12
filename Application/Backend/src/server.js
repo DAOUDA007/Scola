@@ -84,6 +84,7 @@ app.use('/api/school', school.router);
 app.use('/api/orientation', orientation.router);
 app.use('/api', auth.router);
 app.use('/api', require('./inbox').router);
+app.use('/api', require('./social').router);
 app.use('/api', api.router);
 app.use('/api', (req, res) => res.status(404).json({ error: 'Route inconnue.' }));
 

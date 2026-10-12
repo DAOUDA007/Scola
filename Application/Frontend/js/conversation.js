@@ -175,12 +175,16 @@ function subtitle(chat) {
   const t = typingText(chat.id);
   if (t) return { text: t, live: true };
   if (chat.type === 'group') {
-    const ids = S.cls?.memberCount > 1 ? [...S.members.values()].filter(u => !u.deleted).map(u => u.id) : [];
+    const ids = S.cls?.memberCount > 1 ? [...S.members.values()].filter(u => !u.deleted && u.classId === S.me.classId).map(u => u.id) : [];
     const names = ids.filter(x => x !== S.me.id).slice(0, 8).map(x => user(x).name.split(' ')[0]);
     if (!names.length) return { text: `${S.cls?.memberCount || 1} membre · ${S.cls?.country || ''}` };
     return { text: `${names.join(', ')}${ids.length > 9 ? '…' : ''}, Vous` };
   }
   if (chat.type === 'broadcast') return { text: `${chat.recipients.length} destinataires` };
+  if (chat.type === 'team') {
+    const names = (chat.members || []).filter(x => x !== S.me.id).slice(0, 8).map(x => user(x).name.split(' ')[0]);
+    return { text: `${names.join(', ')}${chat.members.length > 9 ? '…' : ''}, Vous` };
+  }
   if (chat.peerId === S.me.id) return { text: 'Envoyez-vous des messages' };
   if (blocked(chat.peerId)) return { text: 'Bloqué(e)' };
   const u = user(chat.peerId);
@@ -207,7 +211,7 @@ function renderHead() {
   const sub = subtitle(chat);
   const canCall = chat.type !== 'broadcast' && chat.peerId !== S.me.id;
   head.innerHTML = `<button class="icon-btn back" data-back title="Retour">${icon('back')}</button>
-    <div class="who" data-info>${avatar(chatEntity(chat), 40, { group: chat.type === 'group', broadcast: chat.type === 'broadcast' })}
+    <div class="who" data-info>${avatar(chatEntity(chat), 40, { group: chat.type === 'group' || chat.type === 'team', broadcast: chat.type === 'broadcast' })}
       <div class="col grow"><div class="t ellipsis">${esc(chatTitle(chat))}</div><div class="s ellipsis ${sub.live ? 'live' : ''}">${esc(sub.text)}</div></div></div>
     ${canCall ? `<button class="icon-btn" data-call="video" title="Appel vidéo">${icon('video')}</button><button class="icon-btn" data-call="audio" title="Appel vocal">${icon('phone')}</button>` : ''}
     <button class="icon-btn" data-search title="Rechercher">${icon('search')}</button>
@@ -222,7 +226,7 @@ function renderHead() {
 function headMenu(chat, anchor) {
   const dm = chat.type === 'dm' && chat.peerId !== S.me.id;
   ctxMenu(anchor, [
-    { icon: 'info', label: chat.type === 'group' ? 'Infos du groupe' : chat.type === 'broadcast' ? 'Infos de la liste' : 'Infos du contact', onClick: () => import('./info.js').then(m => m.openChatInfo(chat)) },
+    { icon: 'info', label: chat.type === 'group' || chat.type === 'team' ? 'Infos du groupe' : chat.type === 'broadcast' ? 'Infos de la liste' : 'Infos du contact', onClick: () => import('./info.js').then(m => m.openChatInfo(chat)) },
     { icon: 'image', label: 'Médias, liens et docs', onClick: () => import('./info.js').then(m => m.openMedia(chat)) },
     { icon: 'checkSq', label: 'Sélectionner des messages', onClick: () => setSelecting(true) },
     chat.type !== 'broadcast' && { icon: 'timer', label: 'Messages éphémères', onClick: () => import('./info.js').then(m => m.setDisappearing(chat)) },
@@ -233,7 +237,7 @@ function headMenu(chat, anchor) {
     { icon: 'x', label: 'Effacer la discussion', onClick: () => clearChat(chat) },
     dm && { icon: 'ban', label: blocked(chat.peerId) ? 'Débloquer' : 'Bloquer', onClick: () => toggleBlock(chat.peerId) },
     dm && { icon: 'flag', label: 'Signaler', onClick: () => report({ userId: chat.peerId }) },
-    chat.type !== 'group' && { icon: 'trash', label: 'Supprimer la discussion', danger: true, onClick: () => deleteChat(chat) },
+    chat.type !== 'group' && { icon: 'trash', label: chat.type === 'team' ? 'Quitter le groupe' : 'Supprimer la discussion', danger: true, onClick: () => deleteChat(chat) },
     { icon: 'x', label: 'Fermer la discussion', onClick: () => closeChat() },
   ]);
 }
@@ -908,7 +912,7 @@ function mentionSuggest() {
   if (!mm) { box.innerHTML = ''; sugg.list = []; return; }
   const q = fold(mm[2]);
   sugg.start = before.length - mm[2].length - 1;
-  sugg.list = [...S.members.values()].filter(u => !u.deleted && u.id !== S.me.id && fold(u.name).includes(q)).slice(0, 8);
+  sugg.list = [...S.members.values()].filter(u => !u.deleted && u.classId === S.me.classId && u.id !== S.me.id && fold(u.name).includes(q)).slice(0, 8);
   sugg.i = 0;
   drawSuggest();
 }

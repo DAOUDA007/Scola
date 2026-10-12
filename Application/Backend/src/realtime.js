@@ -28,7 +28,7 @@ module.exports = function realtime(io) {
 
   function markDelivered(u) {
     const t = C.now();
-    const chatIds = [u.classId, ...Object.values(data.chats).filter(c => c.type === 'dm' && c.members.includes(u.id)).map(c => c.id)];
+    const chatIds = [u.classId, ...Object.values(data.chats).filter(c => (c.type === 'dm' || c.type === 'team') && c.members.includes(u.id)).map(c => c.id)];
     const bySender = {};
     for (const id of chatIds) {
       const list = data.messages[id] || [];
@@ -114,7 +114,7 @@ module.exports = function realtime(io) {
       if (!C.canAccess(chat, u.id) || chat.type === 'broadcast') return ack({ error: 'Discussion introuvable.' });
       for (const c of active.values()) if (c.chatId === chatId) return ack({ error: 'Un appel est déjà en cours dans cette discussion.', callId: c.id });
       let invited;
-      const group = chat.type === 'group';
+      const group = chat.type === 'group' || chat.type === 'team';
       if (group) {
         const members = C.chatMembers(chat);
         invited = [u.id, ...(Array.isArray(userIds) ? userIds : []).filter(x => x !== u.id && members.includes(x))].slice(0, 32);

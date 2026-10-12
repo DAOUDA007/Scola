@@ -337,6 +337,7 @@ function privacyPage() {
           ${row('info', 'Infos', lab(p.about), 'data-a="about"')}
           ${row('phone', 'Numéro de téléphone', lab(p.phone), 'data-a="phone"')}
           ${sw('readReceipts', 'Confirmations de lecture', 'Si désactivées, vous ne verrez pas non plus celles des autres. Toujours actives dans le groupe de classe.', p.readReceipts)}
+          ${row('phone', 'Qui peut m\u2019écrire grâce à mon numéro', p.contactable === 'class' ? 'Ma classe seulement' : 'Tout élève ou étudiant qui a mon numéro', 'data-a="contactable"')}
           <div class="section-title">Orientation</div>
           ${sw('personalizedAds', 'Publicités personnalisées', 'Les établissements peuvent payer pour apparaître dans l’onglet Orientation (jamais dans ta classe, tes discussions, tes appels ni tes notifications). Activé : Scola choisit celles qui correspondent à ton niveau, ta filière et ta ville, sans jamais dire aux établissements qui tu es. Désactivé : tu vois seulement des publicités non ciblées, au même emplacement.', p.personalizedAds !== false)}
           <div class="section-title">Contacts bloqués</div>
@@ -350,6 +351,11 @@ function privacyPage() {
         const a = e.target.closest('[data-a]')?.dataset.a;
         if (!a) return;
         if (a === 'blocked') return blockedPage();
+        if (a === 'contactable') {
+          const v = await choose('Qui peut m\u2019écrire grâce à mon numéro', [{ value: 'all', label: 'Tout élève ou étudiant qui a mon numéro' }, { value: 'class', label: 'Ma classe seulement' }], S.me.privacy.contactable || 'all', { note: 'Hors de votre classe, personne ne voit votre « vu à » ni vos infos. Vous pouvez toujours bloquer ou signaler quelqu\u2019un.' });
+          if (v) patch('/me/privacy', { contactable: v }).then(setMe).catch(fail);
+          return;
+        }
         const notes = { lastSeen: 'Si vous ne partagez pas votre « vu à », vous ne verrez pas celui des autres.' };
         const v = await choose({ lastSeen: 'Vu à et en ligne', avatar: 'Photo de profil', about: 'Infos', phone: 'Numéro de téléphone' }[a], [{ value: 'all', label: 'Ma classe' }, { value: 'nobody', label: 'Personne' }], S.me.privacy[a], { note: notes[a] || '' });
         if (v) patch('/me/privacy', { [a]: v }).then(setMe).catch(fail);

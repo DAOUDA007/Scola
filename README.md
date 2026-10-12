@@ -286,6 +286,17 @@ cours), couper le micro, caméra, retourner la caméra, **partage d'écran**, r�
 **Ma classe** (équivalent éducatif de l'onglet Communautés) — agenda des évènements, sondages récents,
 cours et documents partagés, annuaire de la classe.
 
+**Groupes des chefs de classe** — l'administration nomme des chefs de classe (fiche de l'élève). Un chef
+de classe demande la création d'un groupe avec des membres de sa classe ; le groupe n'existe qu'après
+validation dans *Administration › Groupes* (ou est refusé avec un motif). Le chef renomme le groupe,
+ajoute ou retire des membres de sa classe ; chacun peut le quitter ; l'administration peut le supprimer.
+
+**Discussions avec ses contacts** — « Nouvelle discussion › Mes contacts sur Scola » (contacts du
+téléphone, Android/Chrome) ou « Écrire à un numéro » : on peut écrire à un élève d'une autre classe qui
+utilise Scola. Hors de la classe, ni « vu à » ni infos ne sont visibles. Réglage *Confidentialité ›
+Qui peut m'écrire grâce à mon numéro* (tout le monde / ma classe seulement) ; blocage et signalement
+restent possibles. Les numéros des contacts ne sont pas conservés.
+
 **Groupe de classe** — tous les membres sont égaux ; les réglages et la modération relèvent de
 l'administration du site. Lien d'invitation (QR, partage), signalement à l'administration, annonces
 officielles signées « Administration Scola ». Les membres ne peuvent ni être ajoutés depuis une autre

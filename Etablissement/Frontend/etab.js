@@ -64,6 +64,7 @@ function publicPage() {
   if (page === 'activer') return activatePage();
   if (page === 'suivi') return statusPage();
   if (page === 'connexion') return loginPage();
+  if (page === 'oubli') return forgotPage();
   const card = shell(`<div class="et-hero"><div>
       <h1>Votre établissement sur Scola</h1>
       <p class="lead">Créez la chaîne d'orientation de votre école ou université et touchez directement les élèves et étudiants.</p>
@@ -179,6 +180,45 @@ function statusPage() {
   };
 }
 
+function forgotPage() {
+  const card = shell(`<button class="btn text" data-back style="padding:0;height:auto;margin-bottom:10px">← Retour</button>
+    <h1>Mot de passe oublié</h1><p class="lead">Indiquez l'e-mail de l'établissement.</p>
+    <form data-f style="max-width:440px"><div class="field"><label>E-mail de l'établissement</label><input class="input" type="email" name="email" required autocomplete="username"></div>
+      <div data-step2 hidden>
+        <div class="field"><label>Code reçu par SMS</label><input class="input code-input" name="code" maxlength="6" inputmode="numeric" autocomplete="one-time-code"></div>
+        <div class="field"><label>Nouveau mot de passe (8 caractères minimum)</label><input class="input" type="password" name="password" minlength="8" autocomplete="new-password"></div>
+        <div class="field"><label>Confirmer</label><input class="input" type="password" name="confirm" minlength="8" autocomplete="new-password"></div></div>
+      <div class="notice" data-info hidden></div>
+      <div class="error-text" data-err></div><button class="btn block" data-go>Recevoir un code par SMS</button></form>`);
+  $('[data-back]', card).onclick = () => (location.hash = '#connexion');
+  const f = $('[data-f]', card), err = $('[data-err]', card), info = $('[data-info]', card);
+  let step = 1;
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    err.textContent = '';
+    try {
+      if (step === 1) {
+        const r = await post('/password/forgot', { email: f.email.value });
+        if (!r.sms) {
+          info.hidden = false;
+          info.innerHTML = 'Contactez l’administration de Scola (par téléphone ou par e-mail) : elle vous donnera un <b>mot de passe provisoire</b>, que vous remplacerez à votre prochaine connexion.';
+          return;
+        }
+        step = 2;
+        $('[data-step2]', card).hidden = false;
+        info.hidden = false;
+        info.textContent = r.hint ? `Si cet e-mail correspond à un établissement actif, un code a été envoyé par SMS au numéro de l’établissement (se terminant par ${r.hint}).` : 'Si cet e-mail correspond à un établissement actif, un code a été envoyé par SMS au numéro de l’établissement.';
+        $('[data-go]', card).textContent = 'Enregistrer le nouveau mot de passe';
+        f.code.focus();
+        return;
+      }
+      if (f.password.value !== f.confirm.value) return (err.textContent = 'Les deux mots de passe ne correspondent pas.');
+      const r = await post('/password/reset', { email: f.email.value, code: f.code.value, password: f.password.value });
+      tok.set(r.token); toast('Mot de passe modifié'); location.hash = '#/tableau'; start();
+    } catch (er) { err.textContent = er.message; }
+  };
+}
+
 function loginPage() {
   const card = shell(`<button class="btn text" data-back style="padding:0;height:auto;margin-bottom:10px">← Retour</button>
     <h1>Connexion</h1><p class="lead">Espace réservé aux établissements validés par Scola.</p>
@@ -186,6 +226,7 @@ function loginPage() {
       <div class="field"><label>E-mail de l'établissement</label><input class="input" type="email" name="email" required autocomplete="username"></div>
       <div class="field"><label>Mot de passe</label><input class="input" type="password" name="password" required autocomplete="current-password"></div>
       <div class="error-text" data-err></div><button class="btn block">Se connecter</button>
+      <p style="text-align:center;margin:10px 0 0"><a href="#oubli">Mot de passe oublié ?</a></p>
       <p class="hint" style="text-align:center;margin-top:12px">Pas encore de compte ? <a href="#demande">Faire une demande</a> · <a href="#activer">J'ai reçu mon code</a></p></form>`);
   $('[data-back]', card).onclick = () => (location.hash = '');
   $('[data-f]', card).onsubmit = async (e) => {
@@ -239,6 +280,8 @@ async function start() {
   $('[data-logout]').onclick = (e) => { e.preventDefault(); tok.clear(); ME = null; location.hash = ''; publicPage(); };
   refreshBadge();
   timers.push(setInterval(refreshBadge, 30000));
+  // Mot de passe provisoire donné par l'administration : à remplacer tout de suite.
+  if (ME.mustChangePassword) setTimeout(() => { location.hash = '#/compte'; toast('Choisissez votre propre mot de passe pour remplacer le mot de passe provisoire.'); }, 300);
   route();
 }
 
