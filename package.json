@@ -8,6 +8,6 @@
     "build": "node scripts/vercel-build.js",
     "start": "cd Application/Backend && npm start",
     "dev": "cd Application/Backend && npm run dev",
-    "admin:reset": "node Admin/Backend/reset-admin.js"
+    "admin:reset": "node Admin/Backend/reinitialiser-administrateur.js"
   }
 }

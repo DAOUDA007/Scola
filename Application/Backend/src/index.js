@@ -1,9 +1,9 @@
 // Point d'entrée : charge les données (fichier local ou PostgreSQL) puis démarre le serveur.
 // Les autres modules lisent la base dès leur chargement : ils sont requis après init().
-const db = require('./db');
+const db = require('./base-de-donnees');
 
 db.init()
-  .then(() => require('./server'))
+  .then(() => require('./serveur-web-et-adresses'))
   .catch((e) => {
     console.error('\n  Impossible de charger les données Scola :', e.message);
     if (process.env.DATABASE_URL) console.error('  Vérifiez la variable DATABASE_URL (adresse, mot de passe, accès réseau).\n');

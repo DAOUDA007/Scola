@@ -1,0 +1,430 @@
+// Parcours de connexion et d'inscription.
+import { $, h, esc, icon, pickFiles } from './outils-communs.js';
+import { get, post, token } from './appels-au-serveur.js';
+import { toast, ctxMenu } from './fenetres-et-menus.js';
+import { cropImage, takePhoto } from './photos-videos-fichiers.js';
+
+export const DIAL = {
+  "Côte d'Ivoire": '+225', 'Bénin': '+229', 'Burkina Faso': '+226', 'Cameroun': '+237', 'Congo': '+242', 'RD Congo': '+243',
+  'Gabon': '+241', 'Guinée': '+224', 'Mali': '+223', 'Niger': '+227', 'Sénégal': '+221', 'Tchad': '+235', 'Togo': '+228',
+  'Madagascar': '+261', 'Maroc': '+212', 'Tunisie': '+216', 'Algérie': '+213', 'France': '+33', 'Belgique': '+32', 'Canada': '+1', 'Suisse': '+41',
+};
+
+export function deviceName() {
+  const ua = navigator.userAgent;
+  const b = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Navigateur';
+  const o = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : '';
+  return `${b}${o ? ' (' + o + ')' : ''}`;
+}
+
+let root, done, linkTimer, catalog, invite, onViewport;
+
+export async function startAuth(el, onDone) {
+  root = el;
+  done = (t) => { clearInterval(linkTimer); token.set(t); onDone(t); };
+  catalog = await get('/catalog');
+  const code = new URLSearchParams(location.search).get('join');
+  if (code) invite = await get('/invite/' + encodeURIComponent(code)).catch(() => null);
+  // Lien d'invitation d'une classe : c'est forcément un élève.
+  if (invite) return welcome();
+  chooseProfile();
+}
+
+/* ---------- Qui êtes-vous ? ----------
+   Élèves et établissements sont séparés dès le départ : un établissement ne passe jamais par le
+   numéro de téléphone ni par le choix d'une classe, il crée son compte dans son propre espace. */
+function chooseProfile() {
+  const card = shell(`
+    <h1>Bienvenue sur Scola</h1>
+    <p class="muted" style="margin:0 0 18px">Qui êtes-vous ?</p>
+    <div class="profile-choice">
+      <button class="choice-card" data-student>${icon('cap', 'lg')}<span><b>Élève ou étudiant</b><small>Rejoins le groupe de ta filière et de ton niveau, discute avec ta classe, suis les établissements.</small></span>${icon('chevR', 'sm')}</button>
+      <a class="choice-card" href="/etablissement/">${icon('megaphone', 'lg')}<span><b>Établissement</b><small>École, université, lycée, centre de formation : créez ou ouvrez le compte de votre établissement.</small></span>${icon('chevR', 'sm')}</a>
+    </div>
+    <p class="faint" style="font-size:12.5px;margin:16px 0 0">Les établissements n'intègrent aucun groupe de classe : ils disposent de leur propre espace, validé par l'administration de Scola.</p>`, true);
+  $('[data-student]', card).onclick = () => welcome();
+}
+
+function shell(inner, narrow = false) {
+  clearInterval(linkTimer);
+  root.innerHTML = `<div class="auth"><div class="auth-band"></div>
+    <div class="auth-top"><div class="logo"></div>SCOLA</div>
+    <div class="auth-card ${narrow ? 'narrow' : ''}">${inner}</div></div>`;
+  window.scrollTo(0, 0); // chaque étape s'ouvre en haut, sans saut
+  const card = $('.auth-card', root);
+  // Le contenu du cadre défile (pas la page) : le champ actif est amené au centre du cadre,
+  // y compris quand le clavier du téléphone s'ouvre et réduit la hauteur visible.
+  const reveal = () => {
+    const el = document.activeElement;
+    if (el && card.contains(el) && /INPUT|SELECT|TEXTAREA/.test(el.tagName)) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+  card.addEventListener('focusin', () => setTimeout(reveal, 300));
+  if (window.visualViewport) {
+    if (onViewport) visualViewport.removeEventListener('resize', onViewport);
+    onViewport = () => { if (card.isConnected) reveal(); };
+    visualViewport.addEventListener('resize', onViewport);
+  }
+  return card;
+}
+
+/* ---------- Accueil ---------- */
+function welcome() {
+  const card = shell(`
+    <div>
+      <h1>Bienvenue sur Scola</h1>
+      <p class="muted" style="margin:0 0 18px">La messagerie qui réunit <b>tous les élèves et étudiants de ta filière et de ton niveau</b> dans un seul groupe : partagez cours, devoirs, annonces, et discutez comme sur WhatsApp.</p>
+      ${invite ? `<div class="class-preview">${icon('cap', 'lg')}<div><small>Invitation à rejoindre</small><b>${esc(invite.name)}</b><small>${esc(invite.country)} · ${invite.members} membre${invite.members > 1 ? 's' : ''}</small></div></div>` : ''}
+      <button class="btn" data-phone style="margin:8px 0 10px">${icon('phone', 'sm')} Continuer avec mon numéro</button>
+      <p class="faint" style="font-size:12.5px;margin:0 0 22px">Espace réservé aux élèves et étudiants. ${invite ? '' : '<a href="#" data-back-profile>← Changer de profil</a> · '}<a href="/etablissement/">Vous êtes un établissement ?</a></p>
+      <h3 style="margin:0 0 6px;font-weight:500">Déjà connecté sur un autre appareil ?</h3>
+      <ol>
+        <li>Ouvre Scola sur ton téléphone</li>
+        <li>Va dans <b>Paramètres</b> › <b>Appareils connectés</b></li>
+        <li>Appuie sur <b>Connecter un appareil</b></li>
+        <li>Scanne ce code QR (ou saisis le code affiché)</li>
+      </ol>
+    </div>
+    <div style="text-align:center">
+      <div class="qr"><div class="faint">Chargement…</div></div>
+      <p class="faint" style="font-size:13px;margin-top:10px">Code : <b data-code style="letter-spacing:2px">—</b></p>
+    </div>`);
+  $('[data-phone]', card).onclick = () => phoneStep();
+  $('[data-back-profile]', card)?.addEventListener('click', (e) => { e.preventDefault(); chooseProfile(); });
+  startLink(card);
+}
+
+async function startLink(card) {
+  const box = $('.qr', card);
+  try {
+    const l = await post('/auth/link/start', { device: deviceName() });
+    box.innerHTML = `<img src="${l.qr}" alt="Code QR de connexion">`;
+    $('[data-code]', card).textContent = l.code;
+    linkTimer = setInterval(async () => {
+      if (!document.body.contains(box)) return clearInterval(linkTimer);
+      const r = await get('/auth/link/' + l.code).catch(() => ({}));
+      if (r.token) { done(r.token); toast('Appareil connecté'); }
+      else if (r.expired || Date.now() > l.expires) {
+        clearInterval(linkTimer);
+        box.insertAdjacentHTML('beforeend', `<div class="expired"><span>Code expiré</span><button class="btn">${icon('refresh', 'sm')} Recharger</button></div>`);
+        $('.expired button', box).onclick = () => startLink(card);
+      }
+    }, 2000);
+  } catch { box.innerHTML = '<div class="faint">QR indisponible</div>'; }
+}
+
+/* ---------- Numéro de téléphone ---------- */
+function phoneStep(prefill = {}) {
+  const country = prefill.country || invite?.country || "Côte d'Ivoire";
+  const card = shell(`
+    <button class="icon-btn" data-back style="margin:-12px 0 8px -12px">${icon('back')}</button>
+    <h1>Ton numéro de téléphone</h1>
+    <p class="muted">Ton numéro de téléphone est ton identifiant sur Scola. Il n'est jamais montré aux établissements.</p>
+    <div class="field"><label>Pays</label><select class="select" data-country>${Object.keys(DIAL).map(c => `<option ${c === country ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
+    <div class="field"><label>Numéro</label><div class="phone-row"><input class="input" data-dial readonly style="width:70px;flex:none"><input class="input" data-num inputmode="tel" autocomplete="tel-national" placeholder="07 00 00 00 00" value="${esc(prefill.num || '')}"></div></div>
+    <div class="error-text" data-err></div>
+    <button class="btn block" data-go>Suivant</button>`, true);
+  const sel = $('[data-country]', card), dial = $('[data-dial]', card), num = $('[data-num]', card);
+  const sync = () => { dial.value = DIAL[sel.value]; };
+  sync();
+  sel.onchange = sync;
+  $('[data-back]', card).onclick = welcome;
+  const go = async () => {
+    const digits = num.value.replace(/\D/g, '');
+    const phone = dial.value + (dial.value === '+33' || dial.value === '+32' || dial.value === '+41' ? digits.replace(/^0/, '') : digits);
+    if (digits.length < 6) return ($('[data-err]', card).textContent = 'Numéro trop court.');
+    $('[data-go]', card).disabled = true;
+    try {
+      const r = await post('/auth/request-otp', { phone });
+      if (r.mode === 'password') passwordStep(phone, r, { country: sel.value, num: num.value });
+      else otpStep(phone, r, { country: sel.value, num: num.value });
+    } catch (e) { $('[data-err]', card).textContent = e.message; $('[data-go]', card).disabled = false; }
+  };
+  $('[data-go]', card).onclick = go;
+  num.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  num.focus();
+}
+
+/* ---------- Mot de passe (connexion sans SMS) ---------- */
+function passwordStep(phone, info, prefill) {
+  const login = info.exists;
+  const card = shell(`
+    <button class="icon-btn" data-back style="margin:-12px 0 8px -12px">${icon('back')}</button>
+    <h1>${login ? 'Ton mot de passe' : 'Crée ton mot de passe'}</h1>
+    <p class="muted">${login ? `Compte Scola du <b>${esc(phone)}</b>.` : `Nouveau compte pour le <b>${esc(phone)}</b>. Ce mot de passe te permettra de te reconnecter sur n'importe quel téléphone.`}
+      <button class="btn text" data-edit style="height:auto;padding:0">Changer de numéro</button></p>
+    ${login && !info.hasPassword ? `<div class="notice warn" style="margin-bottom:12px">Ce compte n'a pas encore de mot de passe. Ouvre Scola sur un appareil déjà connecté et crée-le dans <b>Paramètres › Compte › Mot de passe</b>, ou demande un mot de passe provisoire à l'administration de Scola.</div>` : ''}
+    ${!login && info.sms ? `<div class="field"><label>Code reçu par SMS</label><input class="input code-in" data-code inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 chiffres">
+      <div class="hint" data-sms-state>Envoi du code…</div><button type="button" class="btn text" data-resend style="height:auto;padding:0" disabled>Renvoyer le code</button></div>` : ''}
+    <div class="field"><label>Mot de passe</label><div class="pw-row"><input class="input" type="password" data-pw autocomplete="${login ? 'current-password' : 'new-password'}" minlength="8" placeholder="${login ? '' : '8 caractères minimum'}"><button type="button" class="icon-btn" data-eye title="Afficher">${icon('eye', 'sm')}</button></div></div>
+    ${login ? '' : `<div class="field"><label>Confirme le mot de passe</label><input class="input" type="password" data-pw2 autocomplete="new-password"></div>
+      <p class="hint" style="margin-top:-4px">Ne le donne à personne. Évite ta date de naissance ou 12345678.</p>`}
+    <div class="error-text" data-err></div>
+    <button class="btn block" data-go>${login ? 'Se connecter' : 'Continuer'}</button>
+    ${login ? (info.sms ? `<p style="text-align:center;margin-top:14px"><button class="btn text" data-forgot>Mot de passe oublié ?</button></p>`
+      : `<p class="hint" style="text-align:center;margin-top:14px"><b>Mot de passe oublié ?</b> Sur un appareil déjà connecté : Paramètres › Compte › Mot de passe. Sinon, demande un mot de passe provisoire à l'administration de Scola.</p>`) : ''}`, true);
+  const pw = $('[data-pw]', card), err = $('[data-err]', card), btn = $('[data-go]', card);
+  $('[data-forgot]', card)?.addEventListener('click', () => resetStep(phone, prefill));
+  // Code de vérification envoyé par SMS dès l'ouverture de l'écran (inscription).
+  if ($('[data-code]', card)) smsSender(card, () => post('/auth/send-code', { phone, purpose: 'signup' }), phone);
+  $('[data-back]', card).onclick = () => phoneStep(prefill);
+  $('[data-edit]', card).onclick = () => phoneStep(prefill);
+  $('[data-eye]', card).onclick = () => { const t = pw.type === 'password' ? 'text' : 'password'; pw.type = t; const p2 = $('[data-pw2]', card); if (p2) p2.type = t; };
+  const go = async () => {
+    err.textContent = '';
+    if (pw.value.length < 8) return (err.textContent = 'Le mot de passe doit contenir au moins 8 caractères.');
+    if (!login && pw.value !== $('[data-pw2]', card).value) return (err.textContent = 'Les deux mots de passe ne correspondent pas.');
+    btn.disabled = true;
+    try {
+      if (login) {
+        const r = await post('/auth/login-password', { phone, password: pw.value, device: deviceName() });
+        if (r.token) return done(r.token);
+        if (r.needPin) return pinStep(r);
+      } else {
+        const code = $('[data-code]', card)?.value;
+        if ($('[data-code]', card) && !/^\d{6}$/.test(code)) { btn.disabled = false; return (err.textContent = 'Saisis le code à 6 chiffres reçu par SMS.'); }
+        const r = await post('/auth/signup-start', { phone, password: pw.value, code });
+        return profileStep({ signupToken: r.signupToken, country: prefill.country });
+      }
+    } catch (e) { err.textContent = e.message; btn.disabled = false; pw.select(); }
+  };
+  btn.onclick = go;
+  card.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('input')) go(); });
+  pw.focus();
+}
+
+// Envoi d'un code par SMS avec compte à rebours avant de pouvoir le renvoyer.
+function smsSender(card, send, phone) {
+  const state = $('[data-sms-state]', card), again = $('[data-resend]', card);
+  const run = async () => {
+    again.disabled = true;
+    state.textContent = 'Envoi du code…';
+    try {
+      await send();
+      state.innerHTML = `Code envoyé par SMS au <b>${esc(phone)}</b>. Il arrive en général en moins d'une minute.`;
+      let left = 60;
+      const t = setInterval(() => {
+        if (!again.isConnected) return clearInterval(t);
+        left--; again.textContent = left > 0 ? `Renvoyer le code (${left} s)` : 'Renvoyer le code';
+        if (left <= 0) { again.disabled = false; clearInterval(t); }
+      }, 1000);
+    } catch (e) { state.textContent = e.message; again.disabled = false; again.textContent = 'Réessayer'; }
+  };
+  again.onclick = run;
+  run();
+}
+
+/* ---------- Mot de passe oublié (code par SMS) ---------- */
+function resetStep(phone, prefill) {
+  const card = shell(`
+    <button class="icon-btn" data-back style="margin:-12px 0 8px -12px">${icon('back')}</button>
+    <h1>Nouveau mot de passe</h1>
+    <p class="muted">Compte Scola du <b>${esc(phone)}</b>.</p>
+    <div class="field"><label>Code reçu par SMS</label><input class="input code-in" data-code inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 chiffres">
+      <div class="hint" data-sms-state>Envoi du code…</div><button type="button" class="btn text" data-resend style="height:auto;padding:0" disabled>Renvoyer le code</button></div>
+    <div class="field"><label>Nouveau mot de passe (8 caractères minimum)</label><input class="input" type="password" data-pw autocomplete="new-password"></div>
+    <div class="field"><label>Confirme le mot de passe</label><input class="input" type="password" data-pw2 autocomplete="new-password"></div>
+    <div class="error-text" data-err></div>
+    <button class="btn block" data-go>Enregistrer et me connecter</button>`, true);
+  const err = $('[data-err]', card), btn = $('[data-go]', card);
+  $('[data-back]', card).onclick = () => phoneStep(prefill);
+  smsSender(card, () => post('/auth/send-code', { phone, purpose: 'reset' }), phone);
+  btn.onclick = async () => {
+    err.textContent = '';
+    const code = $('[data-code]', card).value, p1 = $('[data-pw]', card).value;
+    if (!/^\d{6}$/.test(code)) return (err.textContent = 'Saisis le code à 6 chiffres reçu par SMS.');
+    if (p1.length < 8) return (err.textContent = 'Le mot de passe doit contenir au moins 8 caractères.');
+    if (p1 !== $('[data-pw2]', card).value) return (err.textContent = 'Les deux mots de passe ne correspondent pas.');
+    btn.disabled = true;
+    try {
+      const r = await post('/auth/reset-password', { phone, code, password: p1, device: deviceName() });
+      if (r.token) return done(r.token);
+      if (r.needPin) return pinStep(r);
+    } catch (e) { err.textContent = e.message; btn.disabled = false; }
+  };
+}
+
+/* ---------- Code reçu par SMS ---------- */
+function otpStep(phone, info, prefill) {
+  const card = shell(`
+    <button class="icon-btn" data-back style="margin:-12px 0 8px -12px">${icon('back')}</button>
+    <h1>Vérification</h1>
+    <p class="muted">Saisis le code envoyé par SMS au <b>${esc(phone)}</b>. <button class="btn text" data-edit style="height:auto;padding:0">Mauvais numéro ?</button></p>
+    ${info.devCode ? `<div class="dev-code">Mode démonstration (aucun SMS configuré) — ton code est <b style="letter-spacing:2px">${info.devCode}</b></div>` : ''}
+    <div class="otp">${'<input inputmode="numeric" maxlength="1" autocomplete="one-time-code">'.repeat(6)}</div>
+    <div class="error-text" data-err style="text-align:center"></div>
+    <p style="text-align:center"><button class="btn text" data-resend disabled>Renvoyer le code</button></p>`, true);
+  const inputs = [...card.querySelectorAll('.otp input')];
+  $('[data-back]', card).onclick = () => phoneStep(prefill);
+  $('[data-edit]', card).onclick = () => phoneStep(prefill);
+  const resend = $('[data-resend]', card);
+  let left = 30;
+  const tick = setInterval(() => {
+    if (!document.body.contains(resend)) return clearInterval(tick);
+    left--; resend.textContent = left > 0 ? `Renvoyer le code (${left} s)` : 'Renvoyer le code';
+    if (left <= 0) { resend.disabled = false; clearInterval(tick); }
+  }, 1000);
+  resend.onclick = async () => {
+    try { const r = await post('/auth/request-otp', { phone }); otpStep(phone, r, prefill); } catch (e) { toast(e.message, { error: true }); }
+  };
+  const submit = async () => {
+    const code = inputs.map(i => i.value).join('');
+    if (code.length < 6) return;
+    inputs.forEach(i => (i.disabled = true));
+    try {
+      const r = await post('/auth/verify-otp', { phone, code, device: deviceName() });
+      if (r.token) return done(r.token);
+      if (r.needPin) return pinStep(r);
+      if (r.newUser) return profileStep({ signupToken: r.signupToken, country: prefill.country });
+    } catch (e) {
+      $('[data-err]', card).textContent = e.message;
+      inputs.forEach(i => { i.disabled = false; i.value = ''; });
+      inputs[0].focus();
+    }
+  };
+  inputs.forEach((inp, i) => {
+    inp.addEventListener('input', () => {
+      const v = inp.value.replace(/\D/g, '');
+      if (v.length > 1) { v.split('').slice(0, 6 - i).forEach((d, k) => (inputs[i + k].value = d)); }
+      else inp.value = v;
+      const next = inputs.find(x => !x.value);
+      (next || inputs[5]).focus();
+      if (inputs.every(x => x.value)) submit();
+    });
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Backspace' && !inp.value && i > 0) inputs[i - 1].focus(); });
+  });
+  inputs[0].focus();
+}
+
+/* ---------- Vérification en deux étapes ---------- */
+function pinStep(r) {
+  const card = shell(`
+    <h1>Vérification en deux étapes</h1>
+    <p class="muted">Bonjour ${esc(r.name)} ! Ton compte est protégé par un code PIN à 6 chiffres.</p>
+    <div class="otp">${'<input inputmode="numeric" maxlength="1" type="password">'.repeat(6)}</div>
+    <div class="error-text" data-err style="text-align:center"></div>
+    <p class="hint" style="text-align:center">PIN oublié ? Contacte l'administration de Scola pour le réinitialiser.</p>`, true);
+  const inputs = [...card.querySelectorAll('.otp input')];
+  inputs.forEach((inp, i) => {
+    inp.addEventListener('input', async () => {
+      inp.value = inp.value.replace(/\D/g, '').slice(-1);
+      if (inp.value && i < 5) inputs[i + 1].focus();
+      if (inputs.every(x => x.value)) {
+        try { const t = await post('/auth/verify-pin', { pinToken: r.pinToken, pin: inputs.map(x => x.value).join(''), device: deviceName() }); done(t.token); }
+        catch (e) { $('[data-err]', card).textContent = e.message; inputs.forEach(x => (x.value = '')); inputs[0].focus(); }
+      }
+    });
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Backspace' && !inp.value && i > 0) inputs[i - 1].focus(); });
+  });
+  inputs[0].focus();
+}
+
+/* ---------- Inscription : profil ---------- */
+const reg = {};
+function profileStep(init) {
+  Object.assign(reg, init);
+  const card = shell(`
+    <div class="steps"><i class="on"></i><i></i></div>
+    <h1>Ton profil</h1>
+    <p class="muted">Indique ton nom et, si tu veux, une photo. Tes camarades de classe les verront.</p>
+    <button type="button" class="avatar-pick" title="Ajouter une photo">${reg.avatarUrl ? `<img src="${reg.avatarUrl}" alt="">` : icon('camera', 'lg')}</button>
+    <div class="field"><label>Nom complet</label><input class="input" data-name maxlength="40" placeholder="Ex. Awa Koné" value="${esc(reg.name || '')}"></div>
+    <div class="field"><label>Infos (facultatif)</label><input class="input" data-about maxlength="139" placeholder="Salut ! J'utilise Scola." value="${esc(reg.about || '')}"></div>
+    <div class="field"><label>Établissement (facultatif)</label><input class="input" data-school maxlength="80" placeholder="Ex. Lycée Classique d'Abidjan, INP-HB, Pigier…" value="${esc(reg.school || '')}"></div>
+    <div class="error-text" data-err></div>
+    <button class="btn block" data-go>Suivant</button>`, true);
+  // Photo de profil : importée ou prise, puis recadrée en cercle comme sur WhatsApp.
+  const setPhoto = async (file) => {
+    const cropped = await cropImage(file, { title: 'Recadrer ta photo' });
+    if (!cropped) return;
+    reg.avatarFile = cropped;
+    reg.avatarUrl = URL.createObjectURL(cropped);
+    $('.avatar-pick', card).innerHTML = `<img src="${reg.avatarUrl}" alt="">`;
+  };
+  $('.avatar-pick', card).onclick = (e) => ctxMenu(e.currentTarget, [
+    { icon: 'image', label: 'Importer une photo', onClick: () => pickFiles({ accept: 'image/*' }).then(f => f && setPhoto(f[0])) },
+    { icon: 'camera', label: 'Prendre une photo', onClick: () => takePhoto({ video: false }).then(f => f && setPhoto(f)) },
+    reg.avatarFile && { icon: 'trash', label: 'Retirer la photo', danger: true, onClick: () => { reg.avatarFile = reg.avatarUrl = null; $('.avatar-pick', card).innerHTML = icon('camera', 'lg'); } },
+  ], { align: 'left' });
+  $('[data-go]', card).onclick = () => {
+    reg.name = $('[data-name]', card).value.trim();
+    reg.about = $('[data-about]', card).value.trim();
+    reg.school = $('[data-school]', card).value.trim();
+    if (reg.name.length < 2) return ($('[data-err]', card).textContent = 'Indique ton nom (2 caractères minimum).');
+    classStep();
+  };
+  $('[data-name]', card).focus();
+}
+
+/* ---------- Inscription : choix de la classe ---------- */
+function classStep() {
+  const pre = invite || {};
+  const card = shell(`
+    <div class="steps"><i class="on"></i><i class="on"></i></div>
+    <h1>Ta classe</h1>
+    <p class="muted">Choisis ta filière et ton niveau. Tu rejoindras automatiquement le groupe unique de tous les élèves/étudiants concernés dans ton pays.</p>
+    <div class="field"><label>Pays</label><select class="select" data-k="country">${catalog.countries.map(c => `<option ${c === (pre.country || reg.country || "Côte d'Ivoire") ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
+    <div class="field"><label>Cycle</label><select class="select" data-k="cycle">${catalog.cycles.map(c => `<option value="${c.id}" ${c.id === (pre.cycle || 'bts') ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select></div>
+    <div class="field"><label>Filière / série</label><select class="select" data-k="filiere"></select>
+      <input class="input" data-other placeholder="Saisis ta filière" maxlength="80" hidden></div>
+    <div class="field"><label>Niveau</label><select class="select" data-k="niveau"></select></div>
+    <div data-preview></div>
+    <label class="choice" style="font-size:13.5px"><input type="checkbox" data-rules> <span>Je suis élève ou étudiant et j'accepte la charte Scola : respect, entraide, pas de fraude aux examens ni de contenus inappropriés. <b>Je comprends que ma classe ne pourra plus être changée.</b></span></label>
+    <div class="error-text" data-err></div>
+    <button class="btn block" data-go>Rejoindre ma classe</button>
+    <p style="text-align:center"><button class="btn text" data-back>Retour</button></p>`, true);
+  const q = (k) => $(`[data-k=${k}]`, card);
+  const other = $('[data-other]', card);
+  const fillCycle = () => {
+    const c = catalog.cycles.find(x => x.id === q('cycle').value);
+    q('filiere').innerHTML = c.filieres.map(f => `<option ${f === pre.filiere ? 'selected' : ''}>${esc(f)}</option>`).join('') + '<option value="__other">Autre filière…</option>';
+    if (pre.filiere && !c.filieres.includes(pre.filiere)) { q('filiere').value = '__other'; other.value = pre.filiere; }
+    q('niveau').innerHTML = c.niveaux.map(n => `<option ${n === pre.niveau ? 'selected' : ''}>${esc(n)}</option>`).join('');
+    other.hidden = q('filiere').value !== '__other';
+    lookup();
+  };
+  const values = () => ({
+    country: q('country').value, cycle: q('cycle').value, niveau: q('niveau').value,
+    filiere: q('filiere').value === '__other' ? other.value.trim() : q('filiere').value,
+  });
+  let seq = 0;
+  const lookup = async () => {
+    const v = values();
+    const box = $('[data-preview]', card);
+    // La zone garde toujours la même place (hauteur réservée) : le cadre ne saute pas.
+    const show = (title, sub) => { box.innerHTML = `<div class="class-preview">${icon('cap', 'lg')}<div><b>${esc(title)}</b><small>${esc(sub)}</small></div></div>`; };
+    const my = ++seq;
+    if (!v.filiere) { box.classList.remove('loading'); return show('Ta classe', 'Saisis le nom de ta filière'); }
+    box.classList.add('loading');
+    try {
+      const r = await get('/classes/lookup?' + new URLSearchParams(v));
+      if (my !== seq) return;
+      show(r.displayName, `${r.country} · ${r.exists ? `${r.members} membre${r.members > 1 ? 's' : ''} t'attendent` : 'Tu seras le premier membre de cette classe'}`);
+    } catch (e) { if (my === seq) show('Classe introuvable', e.message); }
+    finally { if (my === seq) box.classList.remove('loading'); }
+  };
+  q('cycle').onchange = () => { pre.filiere = pre.niveau = undefined; fillCycle(); };
+  q('country').onchange = lookup;
+  q('niveau').onchange = lookup;
+  q('filiere').onchange = () => { other.hidden = q('filiere').value !== '__other'; if (!other.hidden) other.focus(); lookup(); };
+  let t;
+  other.oninput = () => { clearTimeout(t); t = setTimeout(lookup, 300); };
+  fillCycle();
+  $('[data-back]', card).onclick = () => profileStep({});
+  $('[data-go]', card).onclick = async () => {
+    const v = values();
+    const err = $('[data-err]', card);
+    if (!v.filiere) return (err.textContent = 'Indique ta filière.');
+    if (!$('[data-rules]', card).checked) return (err.textContent = 'Merci d\'accepter la charte.');
+    $('[data-go]', card).disabled = true;
+    try {
+      const r = await post('/auth/register', { signupToken: reg.signupToken, name: reg.name, about: reg.about, school: reg.school, ...v, device: deviceName() });
+      token.set(r.token);
+      if (reg.avatarFile) {
+        const { upload, patch } = await import('./appels-au-serveur.js');
+        try { const f = await upload(reg.avatarFile); await patch('/me', { avatar: f.url }); } catch {}
+      }
+      history.replaceState(null, '', '/');
+      done(r.token);
+    } catch (e) { err.textContent = e.message; $('[data-go]', card).disabled = false; }
+  };
+}

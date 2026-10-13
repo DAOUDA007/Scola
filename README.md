@@ -123,7 +123,15 @@ Le premier administrateur est le **propriétaire** du site : personne d'autre ne
 modifier son compte ; lui seul peut modifier ou supprimer les autres administrateurs et transmettre ce
 rôle (mot de passe exigé). Supprimer un administrateur, un élève, un établissement ou annuler un paiement
 demande le mot de passe de l'administrateur, et ces actions sont inscrites dans un journal
-(page Administrateurs).
+(page Administrateurs). Supprimer une campagne, un signalement, un groupe ou une demande de support
+est réservé au propriétaire, avec son mot de passe. Les paiements d'une campagne supprimée restent
+dans la comptabilité.
+
+**Nettoyage des données de test** (menu *Nettoyage*, propriétaire uniquement) : avant le lancement, on
+efface les abonnements, paiements et reçus, les campagnes, les statistiques d'audience, les signalements,
+le support, les annonces et les demandes de groupe traitées. On garde les comptes élèves cochés, avec
+leurs classes et leurs messages. On peut aussi supprimer des établissements de test. Les formules,
+listes de filières, administrateurs et réglages ne sont jamais touchés.
 
 ### Rester connecté (comme WhatsApp)
 
@@ -271,7 +279,7 @@ serveur**. Les établissements existants passent automatiquement « sans abonnem
 n'est supprimé : les fonctions payantes sont désactivées après 15 jours de grâce. Rappels à J-60, J-30, J-7
 (e-mail si SMTP est configuré, bandeau dans l'espace). Le paiement est enregistré par l'administration
 (Wave, Orange Money, MTN MoMo, Moov Money, virement, chèque, espèces) ; un futur paiement en ligne se
-branchera à un seul endroit : `startOnlinePayment()` dans `Application/Backend/src/billing.js`.
+branchera à un seul endroit : `startOnlinePayment()` dans `Application/Backend/src/abonnements-et-paiements.js`.
 
 Campagnes (Rentrée, Inscriptions, Concours, Événement, Nationale ; prix **provisoires** à fixer dans
 l'admin) : `brouillon → en attente de paiement → en revue → programmée → active → terminée` (ou refusée,
@@ -326,45 +334,28 @@ notifications (navigateur, sons, aperçu), application installable (PWA).
 
 ## Architecture
 
+Le plan détaillé de chaque dossier et de chaque fichier se trouve dans **[Guide-du-projet/](Guide-du-projet/LISEZ-MOI-D-ABORD.md)**,
+avec une fiche « En cas de problème : quel fichier ouvrir ? ».
+
 ```
 Application/                 l'application des élèves
-  Backend/
-    package.json             dépendances et scripts du serveur
-    data/                    base db.json, fichiers envoyés, clé secrète (créé au démarrage)
-    src/
-      index.js               serveur HTTP(S), Socket.IO ; sert Application/Frontend et charge Admin/
-      auth.js                inscription, mot de passe (ou code SMS), PIN, connexion par QR
-      api.js                 API REST des élèves (messages, discussions, classe, stickers, diffusion, profil…)
-      orientation.js         chaînes d'orientation côté élèves (/api/orientation) et code d'activation
-      offers.js              formules, droits (entitlements), quotas, réglages commerciaux
-      billing.js             abonnements, paiements, reçus, Fondateur, échéances et rappels
-      campaigns.js           campagnes : création, ciblage, validation, diffusion, plafond
-      audience.js            compteurs d'audience agrégés (sans données individuelles)
-      reports.js             rapport mensuel, bilan annuel, finances de l'administration
-      mail.js                envoi d'e-mails (SMTP, facultatif)
-      push.js                notifications push (Web Push)
-      realtime.js            présence, « écrit… », accusés de réception, signalisation WebRTC
-      core.js                logique partagée (vues des messages, droits, nettoyage des éphémères)
-      catalog.js             référentiel pays / cycles / filières / niveaux, villes, domaines de formation
-      db.js                  stockage JSON persistant
-  Frontend/
-    index.html, css/app.css, css/pro.css (tableaux de bord admin / établissement), sw.js, manifest.webmanifest, icons/
-    js/                      application des élèves (modules ES, sans étape de build)
-Etablissement/               l'espace des établissements
-  Backend/school.js          API des établissements (/api/school) : demande, activation, publications, messages
-  Frontend/                  index.html, etab.js, offre.js, campagnes.js, stats.js, rapports.js, etab.css (/etablissement)
-Admin/                       tout ce qui concerne l'administration
-  Backend/
-    admin.js                 API de l'espace d'administration (/api/admin)
-    monetisation.js          abonnements, paiements, campagnes, offres et tarifs (/api/admin/billing)
-    reset-admin.js           réinitialisation d'un mot de passe administrateur
-  Frontend/
-    index.html, admin.js, monetisation.js, campagnes.js, admin.css   interface servie sur /admin
+  Backend/                   le serveur de tout Scola (Render) — démarrage : src/index.js
+    src/                     une fonctionnalité par fichier, nommé en français
+                             (connexion-inscription-sms.js, api-messagerie-eleves.js, abonnements-et-paiements.js…)
+    scripts/                 données de démonstration
+  Frontend/                  le site des élèves (Vercel) : index.html, sw.js, css/, js/, icons/, stickers/
+Etablissement/               l'espace des établissements (/etablissement)
+  Backend/api-espace-etablissement.js
+  Frontend/                  espace-etablissement.js, ma-formule-et-paiements.js, mes-campagnes.js…
+Admin/                       l'administration (/admin)
+  Backend/                   api-administration.js, api-abonnements-campagnes-offres.js, reinitialiser-administrateur.js
+  Frontend/                  administration.js, abonnements-et-offres.js, campagnes-publicitaires.js…
+Guide-du-projet/             explications en français simple (aucun code)
 ```
 
 Les parties `Admin` et `Etablissement` n'ont pas de dépendances propres : leur API utilise celles d'`Application/Backend`
-(Express, base de données, logique métier), et son interface réutilise la feuille de style et les
-composants d'`Application/Frontend` (`/css/app.css`, `/js/util.js`, `/js/ui.js`).
+(Express, base de données, logique métier), et leur interface réutilise la feuille de style et les
+composants d'`Application/Frontend` (`/css/style-application.css`, `/js/outils-communs.js`, `/js/fenetres-et-menus.js`).
 
 ## Limites connues et pistes pour la production
 

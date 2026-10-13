@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "admin:reset": "node ../../Admin/Backend/reset-admin.js"
+    "admin:reset": "node ../../Admin/Backend/reinitialiser-administrateur.js"
   },
   "keywords": [
     "messagerie",
