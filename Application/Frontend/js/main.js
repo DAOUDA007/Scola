@@ -8,6 +8,7 @@ import { startAuth } from './auth.js';
 import * as chatlist from './chatlist.js';
 import * as outbox from './outbox.js';
 import { loadInbox, INBOX } from './inbox.js';
+import { SUPPORT, loadSupport, supportReply, openTicket } from './support.js';
 import * as conversation from './conversation.js';
 import * as orientation from './orientation.js';
 import * as calls from './calls.js';
@@ -27,6 +28,7 @@ if ('serviceWorker' in navigator) {
       const p = new URL(e.data.url, location.origin).searchParams;
       if (p.get('orientation')) { setTab('orientation'); nav.openChannel(p.get('orientation'), { post: p.get('post') || undefined }); }
       else if (p.get('inquiry')) { setTab('orientation'); nav.openInquiry(p.get('inquiry')); }
+      else if (p.get('support')) openSupportTicket(p.get('support'));
     }
   });
 }
@@ -102,10 +104,18 @@ async function loadApp() {
   const ori = params.get('orientation'), inq = params.get('inquiry');
   if (ori) { setTab('orientation'); orientation.openChannel(ori, { post: params.get('post') || undefined }); }
   else if (inq) { setTab('orientation'); orientation.openInquiry(inq); }
-  if (q || u || ori || inq || params.get('join') || params.get('inbox')) history.replaceState(null, '', '/');
+  if (params.get('support')) openSupportTicket(params.get('support'));
+  if (q || u || ori || inq || params.get('join') || params.get('inbox') || params.get('support')) history.replaceState(null, '', '/');
   orientation.loadOrientation();
+  loadSupport();
   loadInbox().then(() => { if (params.get('inbox')) { setTab('chats'); nav.openInbox?.(); } });
   syncPush().then(() => emit('push'));
+}
+
+// Ouvre une demande d'aide (notification, bannière) dans l'onglet Paramètres.
+function openSupportTicket(id) {
+  setTab('settings');
+  openTicket(nav.els.side, id);
 }
 
 nav.refresh = async () => {
@@ -180,11 +190,13 @@ export function updateBadges() {
   try { seen = Number(localStorage.getItem('scola.callsSeen')) || 0; } catch {}
   const missed = S.tab === 'calls' ? 0 : S.calls.filter(c => c.missed && c.startedAt > seen).length;
   set('calls', missed ? `<span class="badge">${missed}</span>` : '');
+  set('settings', SUPPORT.unread ? `<span class="badge">${SUPPORT.unread}</span>` : '');
   document.title = n ? `(${n}) Scola` : 'Scola';
 }
 on('chats', updateBadges);
 on('orientation', updateBadges);
 on('calls', updateBadges);
+on('support', updateBadges);
 on('me', () => { renderMe(); applyTheme(); });
 
 /* ---------- Tiroir d'infos (droite) ---------- */
@@ -241,6 +253,15 @@ function connect() {
     });
   });
   socket.on('inbox:remove', () => loadInbox());
+  // Réponse de l'équipe Scola à une demande d'aide.
+  socket.on('support:reply', (d) => {
+    // Conversation déjà ouverte : elle se met à jour et se marque comme lue elle-même.
+    if (document.querySelector('.sup-page')) return supportReply(d);
+    loadSupport().then(() => {
+      sound.message();
+      if (document.visibilityState === 'visible') banner({ title: 'Réponse de l\'équipe Scola', text: 'Ouvrez Paramètres › Aide pour la lire.', entity: { id: 'scola-admin', name: 'Équipe Scola' }, onClick: () => openSupportTicket(d.id) });
+    });
+  });
 
   socket.on('msg:new', async (m) => {
     let chat = S.chats.get(m.chatId);

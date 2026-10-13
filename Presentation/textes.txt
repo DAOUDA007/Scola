@@ -1,0 +1,29 @@
+=== Publication Facebook / Instagram (avec scola-affiche.png) ===
+
+📚 Toute ta classe. Partout dans le pays.
+
+Scola, c'est la messagerie des élèves et des étudiants.
+Tu choisis ta filière et ton niveau, et tu rejoins tout de suite le groupe de tous ceux qui étudient la même chose que toi.
+Exemple : tous les BTS IDA 1ère année de Côte d'Ivoire, réunis dans un seul groupe.
+
+✅ Le groupe de ta classe : cours, sujets, entraide, vocaux, photos et documents
+✅ Orientation : suis les écoles, découvre leurs filières et pose tes questions
+✅ Même sans connexion : tes discussions restent sur ton téléphone
+✅ Sûr et modéré : groupes surveillés, signalements traités, équipe Scola à l'écoute
+✅ Gratuit, sur Android, iPhone et ordinateur
+
+👉 Rejoins ta classe : https://scola-theta.vercel.app
+Partage à tes camarades : plus vous êtes nombreux, plus Scola est utile ! 🙌
+
+#Scola #Étudiants #Élèves #BTS #Université #Orientation #CôteDIvoire
+
+
+=== Message court (WhatsApp, avec scola-statut-whatsapp.png) ===
+
+Salut ! 👋 Découvre Scola, la messagerie des élèves et des étudiants : tu retrouves tous ceux de ta filière et de ton niveau dans un seul groupe, partout dans le pays. Cours, sujets, entraide et orientation. C'est gratuit 👉 https://scola-theta.vercel.app
+
+
+=== Message aux établissements ===
+
+Établissements scolaires et universitaires : présentez vos filières directement aux élèves et étudiants concernés grâce à votre chaîne d'orientation sur Scola. Publications, réponses aux questions, statistiques.
+Demandez votre espace sur https://scola-theta.vercel.app/etablissement/

@@ -468,6 +468,14 @@ router.get('/reports', (req, res) => {
 router.get('/reports/monthly', (req, res) => res.json(RP.monthly(req.school, req.query.m)));
 router.get('/reports/annual', (req, res) => res.json(RP.annual(req.school)));
 
+/* Contacter l'équipe Scola (support). */
+const SUP = backendRequire('./src/support');
+router.get('/support', (req, res) => res.json({ tickets: SUP.listFor('school', req.school.id), topics: SUP.TOPICS }));
+router.post('/support', (req, res) => res.json(SUP.full(SUP.create('school', req.school.id, req.body), 'owner')));
+router.get('/support/:id', (req, res) => res.json(SUP.full(SUP.mine('school', req.school.id, req.params.id), 'owner')));
+router.post('/support/:id/messages', (req, res) => { const t = SUP.mine('school', req.school.id, req.params.id); SUP.reply(t, 'school', req.body); res.json(SUP.full(t, 'owner')); });
+router.post('/support/:id/read', (req, res) => { const t = SUP.mine('school', req.school.id, req.params.id); t.readByOwnerAt = C.now(); save(); res.json({ ok: true }); });
+
 /* Avertissements de l'administration (après un signalement). */
 router.get('/notices', (req, res) => res.json(backendRequire('./src/inbox').noticesOf({ schoolId: req.school.id })));
 router.post('/notices/:id/read', (req, res) => {

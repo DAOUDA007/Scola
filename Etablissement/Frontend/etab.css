@@ -173,3 +173,11 @@ body.etab { overflow: auto; background: var(--bg); }
 .proof-row:last-child { border-bottom: 0; }
 .proof-row.link:hover { background: var(--hover); }
 .proof-row > svg.i { color: var(--text-3); flex: none; }
+
+/* Contacter l'équipe Scola */
+.sup-list { display: flex; flex-direction: column; }
+.sup-row { display: flex; gap: 12px; align-items: center; padding: 12px 18px; border-top: 1px solid var(--line); color: inherit; text-decoration: none; }
+.sup-row:hover { background: var(--hover); }
+.sup-row .faint { font-size: 13px; margin-top: 2px; }
+.sup-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
+.sup-thread { max-height: 60vh; overflow-y: auto; }

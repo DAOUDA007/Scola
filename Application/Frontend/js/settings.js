@@ -10,6 +10,7 @@ import { openViewer } from './media.js';
 import { DIAL, deviceName } from './auth.js';
 import { pushSupported, enablePush, pushState } from './push.js';
 import { pickCity } from './orientation-plus.js';
+import { SUPPORT, loadSupport, supportBadge, openSupport } from './support.js';
 
 let side;
 
@@ -37,13 +38,15 @@ export function render(el) {
       ${row('star', 'Messages importants', '', 'data-a="starred"')}
       ${row('laptop', 'Appareils connectés', 'Utiliser Scola sur un autre appareil', 'data-a="devices"')}
       ${row('cap', 'Ma classe', esc(S.cls?.name || ''), 'data-a="class"')}
-      ${row('help', 'Aide', 'Centre d\'aide, charte, à propos', 'data-a="help"')}
+      ${row('help', 'Aide' + (SUPPORT.unread ? ' ' + supportBadge() : ''), SUPPORT.unread ? 'Nouvelle réponse de l\'équipe Scola' : 'Centre d\'aide, écrire à l\'équipe Scola, charte', 'data-a="help"')}
       ${row('users', 'Inviter des camarades', '', 'data-a="invite"')}
       ${row('logout', 'Se déconnecter', '', 'data-a="logout"', 'danger')}
       <div class="empty" style="font-size:12px">Scola · la messagerie de ta classe · v1.0</div>`;
   };
   draw();
   live(el, 'me', draw);
+  live(el, 'support', draw);
+  if (!SUPPORT.loaded) loadSupport();
   body.onclick = async (e) => {
     const a = e.target.closest('[data-a]')?.dataset.a;
     if (a === 'profile') openProfile();
@@ -491,11 +494,12 @@ function helpPage() {
     title: 'Aide',
     render: (body) => {
       body.innerHTML = `<div class="profile-top"><div class="splash-logo" style="margin:0 auto 12px;width:72px;height:72px;animation:none"></div><h3>Scola</h3><p class="faint">Version 1.0 · la messagerie de ta classe</p></div>
+        <div class="list" style="margin-bottom:8px">${row('chat', 'Écrire à l\'équipe Scola' + (SUPPORT.unread ? ' ' + supportBadge() : ''), 'Question, problème, mauvaise classe, suggestion…', 'data-support')}</div>
         <div class="card card-pad" style="font-size:14.5px;line-height:1.6">
           <b>Comment fonctionne Scola ?</b>
           <p>À l'inscription, tu choisis ton pays, ton cycle, ta filière et ton niveau. Tu rejoins alors automatiquement le <b>groupe unique</b> de tous les élèves/étudiants concernés (ex. tous les BTS IDA 1ère année de Côte d'Ivoire). Tu ne peux appartenir qu'à une seule classe.</p>
           <b>Administration</b>
-          <p>Scola est géré par une équipe d'administration. Elle modère les groupes de classe, traite les signalements, publie les annonces officielles et peut, en cas d'erreur, transférer un élève dans la bonne classe ou réinitialiser son code PIN.</p>
+          <p>Scola est géré par une équipe d'administration. Elle modère les groupes de classe, traite les signalements, publie les annonces officielles et peut, en cas d'erreur, transférer un élève dans la bonne classe ou lui donner un mot de passe provisoire. Pour la joindre : « Écrire à l'équipe Scola » ci-dessus.</p>
           <b>Mise en forme des messages</b>
           <p><code>*gras*</code> → <b>gras</b> · <code>_italique_</code> → <i>italique</i> · <code>~barré~</code> → <s>barré</s> · <code>\`code\`</code> · <code>\`\`\`bloc\`\`\`</code> · <code>&gt; citation</code> · <code>- liste</code> · <code>@Nom</code> pour mentionner.</p>
           <b>Raccourcis</b>
@@ -503,6 +507,7 @@ function helpPage() {
         </div>
         <div class="card card-pad" style="font-size:14px;line-height:1.6"><b>Charte Scola</b>
           <ul style="padding-left:20px;margin:6px 0"><li>Respect et bienveillance envers tous les camarades.</li><li>Pas de fraude ni de fuite de sujets d'examen.</li><li>Pas de contenus violents, haineux ou inappropriés.</li><li>Pas de spam ni de publicité.</li><li>Signale tout abus : l'administration de Scola est là pour aider.</li></ul></div>`;
+      $('[data-support]', body).onclick = () => openSupport(side);
     },
   });
 }

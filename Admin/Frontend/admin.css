@@ -125,3 +125,8 @@ body.admin { overflow: auto; background: var(--bg); }
 /* Droits d'un administrateur */
 .rights { display: grid; grid-template-columns: 1fr; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
 .rights .chk { white-space: normal; font-size: 14px; }
+
+/* Support */
+a.sup-item { display: block; color: inherit; text-decoration: none; }
+a.sup-item:hover { background: var(--hover); }
+.sup-thread { max-height: 62vh; overflow-y: auto; }

@@ -7,6 +7,7 @@ import * as OFFRE from '/etablissement/offre.js';
 import * as CAMP from '/etablissement/campagnes.js';
 import * as STATS from '/etablissement/stats.js';
 import * as RAPP from '/etablissement/rapports.js';
+import * as AIDE from '/etablissement/aide.js';
 
 const root = $('#root');
 const TK = 'scola.etab.token';
@@ -238,14 +239,15 @@ function loginPage() {
 
 /* ======================= Espace connecté ======================= */
 const NAV = [['tableau', 'poll', 'Tableau de bord'], ['publications', 'megaphone', 'Publications'], ['messages', 'chat', 'Messages des élèves'], ['chaine', 'cap', 'Ma chaîne'],
-  ['formule', 'star', 'Ma formule'], ['campagnes', 'flash', 'Campagnes'], ['rapports', 'file', 'Rapports'], ['compte', 'key', 'Mon compte']];
+  ['formule', 'star', 'Ma formule'], ['campagnes', 'flash', 'Campagnes'], ['rapports', 'file', 'Rapports'], ['compte', 'key', 'Mon compte'], ['aide', 'help', 'Contacter Scola']];
 
 // Contexte partagé avec les modules Ma formule / Campagnes / Statistiques / Rapports.
 const CTX = {
   get: (u) => get(u), post: (u, b) => post(u, b), patch: (u, b) => patch(u, b), del: (u) => del(u),
   uploadFile: (f) => uploadFile(f), me: () => ME, setMe: (m) => { ME = m; drawBrand(); drawBanner(); }, cycles: () => CYCLES,
+  refresh: () => refreshBadge(),
 };
-for (const m of [OFFRE, CAMP, STATS, RAPP]) m.setup(CTX);
+for (const m of [OFFRE, CAMP, STATS, RAPP, AIDE]) m.setup(CTX);
 
 // Bandeau d'échéance (rappels J-60, J-30, J-7, période de grâce) en haut de toutes les pages.
 // Avertissements de l'administration non encore lus : en tête de toutes les pages.
@@ -299,6 +301,11 @@ async function refreshBadge() {
     a?.querySelector('.badge')?.remove();
     if (s.unread) a?.insertAdjacentHTML('beforeend', `<span class="badge">${s.unread}</span>`);
   } catch {}
+  // Réponses de l'équipe Scola non lues.
+  const n = await AIDE.unread();
+  const b = $('.et-links a[data-k=aide]');
+  b?.querySelector('.badge')?.remove();
+  if (n) b?.insertAdjacentHTML('beforeend', `<span class="badge">${n}</span>`);
 }
 
 function route() {
@@ -317,7 +324,7 @@ function route() {
   const c = old.cloneNode(false);
   old.replaceWith(c);
   timers.slice(1).forEach(clearInterval); timers = timers.slice(0, 1);
-  ({ tableau: STATS.dashboard, publications, messages, chaine: channel, formule: OFFRE.formulePage, campagnes: CAMP.campagnesPage, rapports: RAPP.rapportsPage, compte: account })[page](c, id);
+  ({ tableau: STATS.dashboard, publications, messages, chaine: channel, formule: OFFRE.formulePage, campagnes: CAMP.campagnesPage, rapports: RAPP.rapportsPage, compte: account, aide: AIDE.aidePage })[page](c, id);
 }
 addEventListener('hashchange', () => (ME ? route() : publicPage()));
 
@@ -495,7 +502,7 @@ function account(c) {
       <div class="field"><label>Nouveau mot de passe</label><input class="input" type="password" name="password" required minlength="8" autocomplete="new-password"></div>
       <div class="field"><label>Confirmer</label><input class="input" type="password" name="confirm" required minlength="8" autocomplete="new-password"></div>
       <button class="btn">Changer le mot de passe</button></form></div>
-    <div class="panel"><h2>Compte</h2><div class="pad" style="font-size:14px;line-height:1.8">E-mail : <b>${esc(ME.email)}</b><br>Statut : <span class="status-pill active">Compte actif</span><br>Activé le ${esc(fullDate(ME.activatedAt || ME.createdAt))}<br><span class="faint">Pour modifier l'e-mail ou supprimer le compte, contactez l'administration de Scola.</span></div></div>`;
+    <div class="panel"><h2>Compte</h2><div class="pad" style="font-size:14px;line-height:1.8">E-mail : <b>${esc(ME.email)}</b><br>Statut : <span class="status-pill active">Compte actif</span><br>Activé le ${esc(fullDate(ME.activatedAt || ME.createdAt))}<br><span class="faint">Pour modifier l'e-mail ou supprimer le compte : <a href="#/aide/nouvelle">contactez l'équipe Scola</a>.</span></div></div>`;
   $('[data-f]', c).onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target;

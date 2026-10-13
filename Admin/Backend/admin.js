@@ -20,6 +20,7 @@ const mail = backendRequire('./src/mail');
 const OF = backendRequire('./src/offers');
 const INBOX = backendRequire('./src/inbox');
 const SOCIAL = backendRequire('./src/social');
+const SUP = backendRequire('./src/support');
 const { data, save } = C;
 
 const router = express.Router();
@@ -62,12 +63,14 @@ function log(req, action, target = '') {
 // « Administrateurs » et le journal sont réservés au propriétaire.
 const SECTIONS = {
   users: 'Utilisateurs', classes: 'Classes', reports: 'Signalements', schools: 'Établissements', groups: 'Groupes',
-  announce: 'Annonces', billing: 'Abonnements et paiements', campaigns: 'Campagnes publicitaires', offers: 'Offres et tarifs',
+  announce: 'Annonces', support: 'Support', billing: 'Abonnements et paiements', campaigns: 'Campagnes publicitaires', offers: 'Offres et tarifs',
 };
-const DEFAULT_RIGHTS = { users: true, classes: true, reports: true, schools: true, groups: true, announce: true, billing: false, campaigns: false, offers: false };
+const DEFAULT_RIGHTS = { users: true, classes: true, reports: true, schools: true, groups: true, announce: true, support: true, billing: false, campaigns: false, offers: false };
 function rightsOf(a) {
   if (isOwner(a)) return Object.fromEntries(Object.keys(SECTIONS).map(k => [k, true]));
-  return Object.fromEntries(Object.keys(SECTIONS).map(k => [k, !!(a.permissions || DEFAULT_RIGHTS)[k]]));
+  // Une zone ajoutée après la création de l'administrateur prend sa valeur par défaut.
+  const p = a.permissions || {};
+  return Object.fromEntries(Object.keys(SECTIONS).map(k => [k, !!(k in p ? p[k] : DEFAULT_RIGHTS[k])]));
 }
 const can = (a, section) => rightsOf(a)[section];
 // Zone de chaque route (vérification côté serveur, quelle que soit l'interface).
@@ -86,6 +89,7 @@ function sectionsFor(method, p) {
   if (/^\/(schools|posts)/.test(p)) return ['schools', 'reports'];
   if (/^\/teams/.test(p)) return ['groups'];
   if (/^\/(announce|announcements)/.test(p)) return ['announce'];
+  if (/^\/support/.test(p)) return ['support'];
   return 'owner';
 }
 
@@ -283,6 +287,7 @@ router.get('/stats', (req, res) => {
     planRequests: Object.values(data.planRequests || {}).filter(r => r.status === 'pending').length,
     paymentProofs: Object.values(data.paymentProofs || {}).filter(p => p.status === 'pending').length,
     teamRequests: Object.values(data.teamRequests || {}).filter(r => r.status === 'pending').length,
+    supportOpen: SUP.adminUnread(),
     campaignQueue: Object.values(data.campaigns || {}).filter(c => ['awaiting_payment', 'in_review'].includes(c.status)).length,
     admins: Object.keys(data.admins).length,
     signups,
@@ -648,6 +653,12 @@ router.delete('/teams/:id', (req, res) => {
   log(req, 'Groupe supprimé', name || req.params.id);
   res.json({ ok: true });
 });
+
+/* ---------------- Support : messages des élèves et des établissements ---------------- */
+router.get('/support', (req, res) => res.json({ tickets: SUP.adminList(req.query.status), topics: SUP.TOPICS, statuses: SUP.STATUS }));
+router.get('/support/:id', (req, res) => res.json(SUP.adminGet(req.params.id)));
+router.post('/support/:id/messages', (req, res) => res.json(SUP.adminReply(req.params.id, req.admin, req.body)));
+router.post('/support/:id/status', (req, res) => res.json(SUP.adminStatus(req.params.id, req.body.status)));
 
 router.get('/warnings/default', (req, res) => res.json({ text: INBOX.DEFAULT_WARNING }));
 router.post('/users/:id/warn', (req, res) => res.json(INBOX.warn(req.admin, { userId: req.params.id, text: req.body.text, reportId: req.body.reportId })));

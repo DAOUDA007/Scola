@@ -193,6 +193,13 @@ sont relayés vers Render. Si Render est en veille, la première ouverture prend
 
 ## Fonctionnalités
 
+### Support : « Écrire à l'équipe Scola »
+
+- **Élèves** : Paramètres › Aide › *Écrire à l'équipe Scola*. Une demande = un sujet (compte ou connexion, mauvaise classe, bug, abus, paiement, suggestion, autre), un message et une capture ou un PDF facultatifs. L'échange est privé et garde son historique. La réponse arrive en direct, en notification et avec un compteur sur *Paramètres* et sur *Aide*.
+- **Établissements** : menu *Contacter Scola* (lien aussi dans *Mon compte*). La réponse arrive dans l'espace, et par e-mail si le SMTP est configuré.
+- **Administration** : page *Support*, avec un badge pour les demandes à traiter et des filtres À traiter / En attente / Résolues. Elle affiche le nom, la classe et le téléphone du demandeur, avec un lien vers sa fiche. On peut *Répondre*, *Répondre et clore*, *Marquer résolue* ou *Rouvrir*. Cette zone dépend du droit « Support », coché par défaut et que le propriétaire gère. Quand l'élève ou l'établissement écrit à nouveau, la demande repasse « À traiter ».
+- **Limites** : 5 nouvelles demandes par jour et par compte ; les messages font 4 000 caractères au plus et les pièces jointes 10 Mo au plus.
+
 **Compte et connexion** — numéro de téléphone + mot de passe (ou code SMS si un fournisseur est branché), vérification en deux étapes (PIN), connexion
 d'autres appareils par code QR (comme WhatsApp Web), liste des appareils connectés et déconnexion à distance,
 changement de numéro, export de mes données, suppression du compte.
