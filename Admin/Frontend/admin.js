@@ -5,6 +5,7 @@ import { cropImage } from '/js/media.js';
 import * as MON from './monetisation.js';
 import * as CMP from './campagnes.js';
 import * as SUP from './support.js';
+import * as CAT from './catalogue.js';
 
 const root = $('#root');
 const TK = 'scola.admin.token';
@@ -76,6 +77,7 @@ const NAV = [
   ['dashboard', 'poll', 'Tableau de bord'],
   ['users', 'users', 'Utilisateurs'],
   ['classes', 'cap', 'Classes'],
+  ['catalog', 'book', 'Filières et niveaux'],
   ['reports', 'flag', 'Signalements'],
   ['schools', 'megaphone', 'Établissements'],
   ['groups', 'users', 'Groupes'],
@@ -155,7 +157,7 @@ async function refreshBadge() {
 setInterval(() => { if (tok.get() && ME) refreshBadge(); }, 30000);
 
 // Zone de chaque page ; le propriétaire voit tout, les autres selon les droits qu'il leur donne.
-const PAGE_SECTION = { users: 'users', classes: 'classes', reports: 'reports', schools: 'schools', groups: 'groups', support: 'support', announce: 'announce', billing: 'billing', receipt: 'billing', campaigns: 'campaigns', offers: 'offers', admins: 'owner' };
+const PAGE_SECTION = { users: 'users', classes: 'classes', catalog: 'classes', reports: 'reports', schools: 'schools', groups: 'groups', support: 'support', announce: 'announce', billing: 'billing', receipt: 'billing', campaigns: 'campaigns', offers: 'offers', admins: 'owner' };
 function allowed(page) {
   const sec = PAGE_SECTION[page];
   if (!sec) return true;
@@ -178,7 +180,7 @@ function route() {
   old.replaceWith(c);
   window.scrollTo(0, 0);
   c.innerHTML = '<div class="empty">Chargement…</div>';
-  const pages = { dashboard, users, classes, reports, schools, announce, admins, account, billing: MON.billing, campaigns: CMP.campaigns, offers: MON.offersPage, groups, support: SUP.support };
+  const pages = { dashboard, users, classes, reports, schools, announce, admins, account, billing: MON.billing, campaigns: CMP.campaigns, offers: MON.offersPage, groups, support: SUP.support, catalog: CAT.cataloguePage };
   const fn = pages[page] || dashboard;
   if (page === 'users' && id) return userDetail(c, id);
   if (page === 'classes' && id) return classDetail(c, id);
@@ -192,10 +194,11 @@ function route() {
 addEventListener('hashchange', route);
 const setTitle = (t) => { const e = $('[data-title]'); if (e) e.textContent = t; document.title = `${t} · Scola Admin`; };
 // Contexte partagé avec les modules Abonnements / Campagnes / Offres.
-const CTX = { get: (u) => get(u), post: (u, b) => post(u, b), patch: (u, b) => patch(u, b), setTitle, bindRows: (c) => bindRows(c), refreshBadge: () => refreshBadge(), uploadFile: (f) => uploadFile(f) };
+const CTX = { get: (u) => get(u), post: (u, b) => post(u, b), patch: (u, b) => patch(u, b), setTitle, bindRows: (c) => bindRows(c), refreshBadge: () => refreshBadge(), uploadFile: (f) => uploadFile(f), resetCatalog: () => get('/catalog').then(x => { CATALOG = x; }).catch(() => {}) };
 MON.setup(CTX);
 CMP.setup(CTX);
 SUP.setup(CTX);
+CAT.setup(CTX);
 
 /* ---------------- Tableau de bord ---------------- */
 async function dashboard(c) {
@@ -855,7 +858,7 @@ function askPassword(title, text) {
 }
 window.__askPassword = askPassword;
 
-const RIGHTS = [['users', 'Utilisateurs'], ['classes', 'Classes'], ['reports', 'Signalements'], ['schools', 'Établissements'], ['groups', 'Groupes'], ['support', 'Support (messages des utilisateurs)'], ['announce', 'Annonces'],
+const RIGHTS = [['users', 'Utilisateurs'], ['classes', 'Classes, filières et niveaux'], ['reports', 'Signalements'], ['schools', 'Établissements'], ['groups', 'Groupes'], ['support', 'Support (messages des utilisateurs)'], ['announce', 'Annonces'],
   ['billing', 'Abonnements et paiements', true], ['campaigns', 'Campagnes publicitaires', true], ['offers', 'Offres et tarifs', true]];
 
 function adminForm(a, done) {

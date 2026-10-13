@@ -1,7 +1,10 @@
 // Référentiel des parcours scolaires. Une classe Scola = pays + cycle + filière + niveau.
 // Exemple : tous les étudiants « BTS · IDA · 1ère année · Côte d'Ivoire » partagent le même groupe.
+// Les listes ci-dessous sont celles d'origine. L'administration peut les modifier (pays, cycles,
+// filières/séries, niveaux) : la version modifiée est alors enregistrée dans la base (data.meta.catalog).
+const { data, save } = require('./db');
 
-const countries = [
+const DEFAULT_COUNTRIES = [
   "Côte d'Ivoire", 'Bénin', 'Burkina Faso', 'Cameroun', 'Congo', 'RD Congo', 'Gabon',
   'Guinée', 'Mali', 'Niger', 'Sénégal', 'Tchad', 'Togo', 'Madagascar', 'Maroc', 'Tunisie',
   'Algérie', 'France', 'Belgique', 'Canada', 'Suisse',
@@ -16,7 +19,7 @@ const univ = [
   'Génie civil', 'Génie électrique', 'Génie mécanique', 'Télécommunications', 'Architecture',
 ];
 
-const cycles = [
+const DEFAULT_CYCLES = [
   {
     id: 'primaire', label: 'Primaire',
     filieres: ['Enseignement général'],
@@ -122,6 +125,8 @@ const KEYWORDS = [
 function domainOf(filiere) {
   if (!filiere) return null;
   const f = String(filiere);
+  const custom = data.meta.catalog?.domainOf || {};
+  if (custom[f]) return custom[f];
   if (FILIERE_DOMAIN[f]) return FILIERE_DOMAIN[f];
   const short = shortFiliere(f);
   if (FILIERE_DOMAIN[short]) return FILIERE_DOMAIN[short];
@@ -141,20 +146,188 @@ function shortFiliere(f) {
   return m ? m[1] : f;
 }
 
+/* ---------------- Listes en vigueur (modifiables par l'administration) ---------------- */
+const clone = (x) => JSON.parse(JSON.stringify(x));
+function current() {
+  return data.meta.catalog || { countries: DEFAULT_COUNTRIES, cycles: DEFAULT_CYCLES, domainOf: {} };
+}
+// Première modification : on part d'une copie des listes d'origine.
+function editable() {
+  if (!data.meta.catalog) data.meta.catalog = { countries: clone(DEFAULT_COUNTRIES), cycles: clone(DEFAULT_CYCLES), domainOf: {}, updatedAt: null };
+  return data.meta.catalog;
+}
+
+const className = (cycleLabel, filiere, niveau) => `${cycleLabel === 'Licence (LMD)' ? '' : cycleLabel + ' '}${shortFiliere(filiere)} · ${niveau}`.trim();
+const classKey = (country, cycle, filiere, niveau) => [country, cycle, filiere, niveau].map(norm).join('|');
+
 // Valide le choix fait pendant l'inscription et renvoie la classe canonique.
 function resolve({ country, cycle, filiere, niveau }) {
-  const c = cycles.find(x => x.id === cycle);
+  const cat = current();
+  const c = cat.cycles.find(x => x.id === cycle);
   if (!c) throw new Error('Cycle invalide');
-  if (!countries.includes(country)) throw new Error('Pays invalide');
+  if (!cat.countries.includes(country)) throw new Error('Pays invalide');
   if (!c.niveaux.includes(niveau)) throw new Error('Niveau invalide');
   let fil = String(filiere || '').trim().replace(/\s+/g, ' ');
   if (!fil || fil.length > 80) throw new Error('Filière invalide');
   // Filière saisie librement : on réutilise l'entrée du catalogue si elle correspond.
   const known = c.filieres.find(x => norm(x) === norm(fil) || norm(shortFiliere(x)) === norm(fil));
   if (known) fil = known;
-  const key = [country, c.id, fil, niveau].map(norm).join('|');
-  const name = `${c.label === 'Licence (LMD)' ? '' : c.label + ' '}${shortFiliere(fil)} · ${niveau}`.trim();
-  return { key, country, cycle: c.id, cycleLabel: c.label, filiere: fil, niveau, name };
+  return { key: classKey(country, c.id, fil, niveau), country, cycle: c.id, cycleLabel: c.label, filiere: fil, niveau, name: className(c.label, fil, niveau) };
 }
 
-module.exports = { countries, cycles, cities, domains, domainOf, resolve };
+/* ---------------- Modification par l'administration ---------------- */
+class CatalogError extends Error {}
+const bad = (m) => new CatalogError(m);
+function cleanText(v, max = 80) {
+  const t = String(v ?? '').trim().replace(/\s+/g, ' ');
+  if (!t) throw bad('Le nom est vide.');
+  if (t.length > max) throw bad(`Le nom est trop long (${max} caractères maximum).`);
+  return t;
+}
+const same = (a, b) => norm(a) === norm(b);
+function cycleOf(cat, id) {
+  const c = cat.cycles.find(x => x.id === id);
+  if (!c) throw bad('Cycle introuvable.');
+  return c;
+}
+function move(list, i, dir) {
+  const j = i + (dir === 'up' ? -1 : 1);
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+}
+
+// Renommage : les classes existantes suivent (clé, nom), sauf si une classe porte déjà le nouveau nom.
+function migrateClasses(match, change) {
+  let moved = 0, conflicts = 0;
+  for (const cls of Object.values(data.classes)) {
+    if (!match(cls)) continue;
+    const next = { cycleLabel: cls.cycleLabel, filiere: cls.filiere, niveau: cls.niveau, ...change(cls) };
+    const key = classKey(cls.country, cls.cycle, next.filiere, next.niveau);
+    if (key !== cls.key && data.classKeys[key] && data.classKeys[key] !== cls.id) { conflicts++; continue; }
+    const autoName = cls.name === className(cls.cycleLabel, cls.filiere, cls.niveau);
+    if (key !== cls.key) { delete data.classKeys[cls.key]; data.classKeys[key] = cls.id; cls.key = key; }
+    Object.assign(cls, next);
+    if (autoName) cls.name = className(cls.cycleLabel, cls.filiere, cls.niveau);
+    moved++;
+  }
+  return { moved, conflicts };
+}
+
+function apply(b) {
+  const cat = editable();
+  const L = b.list === 'niveaux' ? 'niveaux' : 'filieres';
+  let result = {};
+  switch (b.op) {
+    case 'addCountry': {
+      const n = cleanText(b.value, 60);
+      if (cat.countries.some(x => same(x, n))) throw bad('Ce pays est déjà dans la liste.');
+      cat.countries.push(n);
+      break;
+    }
+    case 'removeCountry':
+      if (cat.countries.length <= 1) throw bad('Il faut au moins un pays.');
+      cat.countries = cat.countries.filter(x => x !== b.value);
+      break;
+    case 'addCycle': {
+      const label = cleanText(b.value, 50);
+      if (cat.cycles.some(x => same(x.label, label))) throw bad('Ce cycle existe déjà.');
+      let id = norm(label).replace(/ /g, '-').slice(0, 30) || 'cycle';
+      while (cat.cycles.some(x => x.id === id)) id += '-2';
+      cat.cycles.push({ id, label, filieres: [], niveaux: [] });
+      result.id = id;
+      break;
+    }
+    case 'renameCycle': {
+      const c = cycleOf(cat, b.cycle);
+      const label = cleanText(b.value, 50);
+      if (cat.cycles.some(x => x !== c && same(x.label, label))) throw bad('Un autre cycle porte déjà ce nom.');
+      c.label = label;
+      result = migrateClasses(cls => cls.cycle === c.id, () => ({ cycleLabel: label }));
+      break;
+    }
+    case 'removeCycle':
+      cycleOf(cat, b.cycle);
+      if (cat.cycles.length <= 1) throw bad('Il faut au moins un cycle.');
+      cat.cycles = cat.cycles.filter(x => x.id !== b.cycle);
+      break;
+    case 'moveCycle':
+      move(cat.cycles, cat.cycles.findIndex(x => x.id === b.cycle), b.dir);
+      break;
+    case 'addItem': {
+      const c = cycleOf(cat, b.cycle);
+      const v = cleanText(b.value);
+      if (c[L].some(x => same(x, v))) throw bad('Déjà dans la liste.');
+      c[L].push(v);
+      if (L === 'filieres' && b.domain && domains[b.domain]) cat.domainOf[v] = b.domain;
+      break;
+    }
+    case 'renameItem': {
+      const c = cycleOf(cat, b.cycle);
+      const i = c[L].indexOf(b.from);
+      if (i < 0) throw bad('Élément introuvable.');
+      const v = cleanText(b.value);
+      if (c[L].some((x, k) => k !== i && same(x, v))) throw bad('Ce nom est déjà dans la liste.');
+      c[L][i] = v;
+      if (L === 'filieres' && cat.domainOf[b.from]) { cat.domainOf[v] = cat.domainOf[b.from]; delete cat.domainOf[b.from]; }
+      result = L === 'filieres'
+        ? migrateClasses(cls => cls.cycle === c.id && cls.filiere === b.from, () => ({ filiere: v }))
+        : migrateClasses(cls => cls.cycle === c.id && cls.niveau === b.from, () => ({ niveau: v }));
+      break;
+    }
+    case 'removeItem': {
+      const c = cycleOf(cat, b.cycle);
+      if (L === 'niveaux' && c.niveaux.length <= 1) throw bad('Un cycle doit garder au moins un niveau.');
+      c[L] = c[L].filter(x => x !== b.value);
+      break;
+    }
+    case 'moveItem': {
+      const c = cycleOf(cat, b.cycle);
+      move(c[L], c[L].indexOf(b.value), b.dir);
+      break;
+    }
+    case 'setDomain':
+      if (b.domain && !domains[b.domain]) throw bad('Domaine inconnu.');
+      if (b.domain) cat.domainOf[cleanText(b.value)] = b.domain; else delete cat.domainOf[b.value];
+      break;
+    case 'reset':
+      delete data.meta.catalog;
+      save();
+      return result;
+    default:
+      throw bad('Opération inconnue.');
+  }
+  cat.updatedAt = Date.now();
+  save();
+  return result;
+}
+
+// Vue de l'administration : listes, nombre de classes/élèves par élément, filières saisies librement.
+function adminView() {
+  const cat = current();
+  const use = {};
+  const unlisted = {};
+  for (const cls of Object.values(data.classes)) {
+    const n = cls.memberIds?.length || 0;
+    const add = (k) => { use[k] ||= { classes: 0, members: 0 }; use[k].classes++; use[k].members += n; };
+    add('country|' + cls.country); add('cycle|' + cls.cycle);
+    add(`filieres|${cls.cycle}|${cls.filiere}`); add(`niveaux|${cls.cycle}|${cls.niveau}`);
+    const cy = cat.cycles.find(x => x.id === cls.cycle);
+    if (cy && !cy.filieres.includes(cls.filiere)) {
+      const k = cls.cycle + '|' + cls.filiere;
+      unlisted[k] ||= { cycle: cls.cycle, cycleLabel: cy.label, filiere: cls.filiere, classes: 0, members: 0 };
+      unlisted[k].classes++; unlisted[k].members += n;
+    }
+  }
+  return {
+    countries: cat.countries, cycles: cat.cycles, domains,
+    domainOf: Object.fromEntries(cat.cycles.flatMap(c => c.filieres).map(f => [f, domainOf(f)])),
+    use, unlisted: Object.values(unlisted).sort((a, z) => z.members - a.members),
+    custom: !!data.meta.catalog, updatedAt: data.meta.catalog?.updatedAt || null,
+  };
+}
+
+module.exports = {
+  get countries() { return current().countries; },
+  get cycles() { return current().cycles; },
+  cities, domains, domainOf, resolve, apply, adminView, CatalogError,
+};

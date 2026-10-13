@@ -193,6 +193,15 @@ sont relayés vers Render. Si Render est en veille, la première ouverture prend
 
 ## Fonctionnalités
 
+### Listes de l'inscription : pays, cycles, filières et niveaux
+
+Administration › **Filières et niveaux** (droit « Classes ») :
+- On peut ajouter, renommer, monter, descendre ou retirer un pays, un cycle, une filière ou série, ou un niveau. On peut aussi choisir le domaine d'une filière, qui sert au ciblage des campagnes.
+- **Filières saisies par les élèves** : quand un élève choisit « Autre filière… », sa filière apparaît ici avec le nombre de classes et d'élèves. Un clic suffit pour l'ajouter à la liste.
+- **Renommer** met aussi à jour les classes existantes. Exception : si une autre classe porte déjà le nouveau nom, la classe garde son ancien nom.
+- **Retirer** ne supprime ni classe ni élève : la valeur n'est simplement plus proposée.
+- Les listes modifiées sont enregistrées dans la base (`meta.catalog`). Le propriétaire peut *rétablir les listes d'origine*, avec son mot de passe.
+
 ### Support : « Écrire à l'équipe Scola »
 
 - **Élèves** : Paramètres › Aide › *Écrire à l'équipe Scola*. Une demande = un sujet (compte ou connexion, mauvaise classe, bug, abus, paiement, suggestion, autre), un message et une capture ou un PDF facultatifs. L'échange est privé et garde son historique. La réponse arrive en direct, en notification et avec un compteur sur *Paramètres* et sur *Aide*.

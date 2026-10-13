@@ -62,7 +62,7 @@ function log(req, action, target = '') {
 // Zones de l'administration. Le propriétaire a tous les droits et décide de ceux des autres.
 // « Administrateurs » et le journal sont réservés au propriétaire.
 const SECTIONS = {
-  users: 'Utilisateurs', classes: 'Classes', reports: 'Signalements', schools: 'Établissements', groups: 'Groupes',
+  users: 'Utilisateurs', classes: 'Classes, filières et niveaux', reports: 'Signalements', schools: 'Établissements', groups: 'Groupes',
   announce: 'Annonces', support: 'Support', billing: 'Abonnements et paiements', campaigns: 'Campagnes publicitaires', offers: 'Offres et tarifs',
 };
 const DEFAULT_RIGHTS = { users: true, classes: true, reports: true, schools: true, groups: true, announce: true, support: true, billing: false, campaigns: false, offers: false };
@@ -75,6 +75,7 @@ function rightsOf(a) {
 const can = (a, section) => rightsOf(a)[section];
 // Zone de chaque route (vérification côté serveur, quelle que soit l'interface).
 function sectionsFor(method, p) {
+  if (/^\/catalog\/manage/.test(p)) return ['classes'];
   if (/^\/(me|catalog|upload|stats|warnings\/default)(\/|$)/.test(p)) return null;
   if (/^\/(admins|log)(\/|$)/.test(p)) return 'owner';
   if (/^\/billing\/campaigns/.test(p)) return ['campaigns'];
@@ -451,6 +452,25 @@ function pushClass(c) {
 }
 
 router.get('/catalog', (req, res) => res.json({ countries: catalog.countries, cycles: catalog.cycles }));
+
+/* Listes de l'inscription (pays, cycles, filières/séries, niveaux) : modifiables par l'administration. */
+router.get('/catalog/manage', (req, res) => res.json(catalog.adminView()));
+router.post('/catalog/manage', (req, res) => {
+  const b = req.body || {};
+  if (b.op === 'reset') {
+    requireOwner(req);
+    confirmPassword(req);
+  }
+  let r;
+  try { r = catalog.apply(b); } catch (e) { if (e instanceof catalog.CatalogError) throw httpError(400, e.message); throw e; }
+  const what = { addCountry: 'Pays ajouté', removeCountry: 'Pays retiré', addCycle: 'Cycle ajouté', renameCycle: 'Cycle renommé', removeCycle: 'Cycle retiré',
+    addItem: b.list === 'niveaux' ? 'Niveau ajouté' : 'Filière ajoutée', renameItem: b.list === 'niveaux' ? 'Niveau renommé' : 'Filière renommée',
+    removeItem: b.list === 'niveaux' ? 'Niveau retiré' : 'Filière retirée', reset: 'Listes d’origine rétablies' }[b.op];
+  if (what) log(req, what, [b.cycle, b.from && b.from + ' →', b.value].filter(Boolean).join(' · '));
+  // Les classes renommées sont mises à jour chez leurs membres connectés.
+  if (r?.moved) for (const c of Object.values(data.classes)) pushClass(c);
+  res.json({ ...catalog.adminView(), result: r });
+});
 
 router.get('/classes', (req, res) => {
   const q = fold(req.query.q);
