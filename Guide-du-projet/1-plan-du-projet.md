@@ -107,6 +107,7 @@
 
 | Fichier | Ce qu'il fait |
 |---|---|
+| `Backend/equipe-etablissement.js` | **équipe de l'établissement** : membres, postes, droits, mots de passe générés, transmission du rôle de responsable principal |
 | `Backend/api-espace-etablissement.js` | serveur de l'espace écoles : demande de compte, activation, connexion, mot de passe oublié, publications, messages des élèves, formule, campagnes, statistiques, support |
 | `Frontend/index.html` | page de l'espace établissement |
 | `Frontend/espace-etablissement.js` | **pages principales** : demande, connexion, publications, messages des élèves, ma chaîne, mon compte |
@@ -114,5 +115,6 @@
 | `Frontend/ma-formule-et-paiements.js` | **Ma formule** : offre, liens de paiement, envoi du reçu |
 | `Frontend/mes-campagnes.js` | **Campagnes** de l'école |
 | `Frontend/rapports-mensuels.js` | **Rapports** imprimables |
+| `Frontend/mon-equipe.js` | page **Mon équipe** (responsable principal) |
 | `Frontend/contacter-scola.js` | **Contacter Scola** (support) |
 | `Frontend/style-espace-etablissement.css` | apparence de l'espace établissement |

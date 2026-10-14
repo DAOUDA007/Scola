@@ -210,6 +210,17 @@ Administration › **Filières et niveaux** (droit « Classes ») :
 - **Retirer** ne supprime ni classe ni élève : la valeur n'est simplement plus proposée.
 - Les listes modifiées sont enregistrées dans la base (`meta.catalog`). Le propriétaire peut *rétablir les listes d'origine*, avec son mot de passe.
 
+### Équipe d'un établissement
+
+Le compte de chaque école est celui du **responsable principal**. Dans **Mon équipe**, il ajoute jusqu'à 15 membres :
+- chacun a un nom, un **poste** et des **droits** : publications, messages des élèves, ma chaîne, formule et paiements, campagnes, tableau de bord et rapports, contacter Scola ;
+- chacun reçoit un **mot de passe généré par Scola**, affiché une seule fois. Il n'est jamais choisi librement, car c'est lui qui identifie la personne ;
+- tous se connectent avec **l'e-mail de l'établissement** et leur propre mot de passe, et ne voient que les rubriques autorisées. Le serveur vérifie chaque accès.
+
+Le responsable peut modifier les droits, générer un nouveau mot de passe, retirer un membre (déconnexion immédiate) ou **transmettre son rôle** avec son mot de passe. L'ancien responsable reste alors membre avec tous les droits.
+
+Les publications et les réponses aux élèves gardent leur auteur. Les élèves ne voient jamais le nom de l'auteur, seulement l'établissement. Un journal de l'équipe trace les connexions et les changements. La récupération par SMS et le mot de passe provisoire donné par l'administration Scola concernent le responsable principal.
+
 ### Support : « Écrire à l'équipe Scola »
 
 - **Élèves** : Paramètres › Aide › *Écrire à l'équipe Scola*. Une demande = un sujet (compte ou connexion, mauvaise classe, bug, abus, paiement, suggestion, autre), un message et une capture ou un PDF facultatifs. L'échange est privé et garde son historique. La réponse arrive en direct, en notification et avec un compteur sur *Paramètres* et sur *Aide*.

@@ -65,6 +65,7 @@ Trouvez le symptôme, puis ouvrez le fichier indiqué. « Serveur » = `Applicat
 | « À la une », page officielle d'une école | Élèves `orientation-a-la-une-et-ville.js` |
 | Publicités affichées aux élèves | Élèves `publicites.js` ; Serveur `campagnes-publicitaires.js` |
 | Une école ne peut pas se connecter / mot de passe oublié | `Etablissement/Backend/api-espace-etablissement.js` |
+| Un membre de l'équipe d'une école ne peut pas se connecter, ne voit pas une rubrique, transmission du rôle | `Etablissement/Backend/equipe-etablissement.js` ; page `Etablissement/Frontend/mon-equipe.js` |
 | Pages de l'espace école (publications, messages, chaîne, compte) | `Etablissement/Frontend/espace-etablissement.js` |
 | Tableau de bord ou rapports d'une école | `Etablissement/Frontend/tableau-de-bord-statistiques.js`, `rapports-mensuels.js` ; Serveur `statistiques-audience-etablissements.js`, `rapports-et-chiffre-affaires.js` |
 

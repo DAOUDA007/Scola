@@ -20,6 +20,9 @@ const RP = backendRequire('./src/rapports-et-chiffre-affaires');
 const catalog = backendRequire('./src/listes-pays-filieres-niveaux');
 const { data, save } = C;
 const DAY = 86400e3;
+const SUP = backendRequire('./src/support-messages-a-l-equipe');
+// Équipe de l'établissement : plusieurs comptes, un mot de passe chacun, des droits par rubrique.
+const TEAM = require('./equipe-etablissement').setup({ bcrypt, httpError, save, now: C.now });
 
 const router = express.Router();
 const normEmail = (e) => String(e || '').trim().toLowerCase();
@@ -27,8 +30,10 @@ const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 const clip = (v, n) => String(v || '').trim().slice(0, n);
 const isMedia = (u) => typeof u === 'string' && /^\/media\/[a-f0-9]{32}(\.[a-z0-9]{1,7})?$/.test(u);
 
-function selfView(s) {
+function selfView(s, memberId) {
+  const me = TEAM.actor(s, memberId);
   return {
+    me: me && { id: me.id, name: me.name, role: me.role, owner: me.owner, rights: me.rights },
     ...O.channelView(s), status: s.status, requestedAt: s.requestedAt, activatedAt: s.activatedAt || null,
     manager: s.manager, email: s.email, mustChangePassword: !!s.mustChangePassword,
     // L'établissement voit toujours ses propres contenus, même masqués aux élèves par sa formule.
@@ -132,7 +137,9 @@ router.post('/request/status', (req, res) => {
 
 /* ---------------- Activation par le code, connexion ---------------- */
 
-function token(s) { return jwt.sign({ sch: s.id, v: s.tokenVersion || 0 }, SECRET, { expiresIn: '30d' }); }
+function token(s, memberId = TEAM.OWNER) {
+  return jwt.sign({ sch: s.id, m: memberId, v: TEAM.versionOf(s, memberId) }, SECRET, { expiresIn: '30d' });
+}
 function checkPassword(p) { if (String(p || '').length < 8) throw httpError(400, 'Le mot de passe doit contenir au moins 8 caractères.'); }
 
 const attempts = new Map();
@@ -157,7 +164,7 @@ router.post('/activate', (req, res) => {
   s.activatedAt = C.now();
   delete s.codeHash; delete s.codeExpires; delete s.codeAttempts;
   save();
-  res.json({ token: token(s), school: selfView(s) });
+  res.json({ token: token(s, TEAM.OWNER), school: selfView(s, TEAM.OWNER) });
 });
 
 /* ---------------- Mot de passe oublié ---------------- */
@@ -190,20 +197,21 @@ router.post('/password/reset', (req, res) => {
   s.tokenVersion = (s.tokenVersion || 0) + 1;
   s.mustChangePassword = false;
   save();
-  res.json({ token: token(s), school: selfView(s) });
+  res.json({ token: token(s, TEAM.OWNER), school: selfView(s, TEAM.OWNER) });
 });
 
 router.post('/login', (req, res) => {
   limit(req);
   const s = Object.values(data.schools).find(x => x.email === normEmail(req.body.email));
   if (s && ['pending', 'code_sent'].includes(s.status)) throw httpError(400, 'Compte pas encore activé : utilisez le code d\'activation reçu par e-mail (sous 72 h après la demande).');
-  if (!s || !s.passwordHash || !bcrypt.compareSync(String(req.body.password || ''), s.passwordHash)) { failed(req); throw httpError(401, 'E-mail ou mot de passe incorrect.'); }
+  const who = s && s.passwordHash ? TEAM.identify(s, req.body.password) : null;
+  if (!who) { failed(req); throw httpError(401, 'E-mail ou mot de passe incorrect.'); }
   if (s.status === 'suspended') throw httpError(403, 'Ce compte a été suspendu par l\'administration de Scola.');
   if (s.status !== 'active') throw httpError(403, 'Ce compte n\'est pas actif.');
   attempts.delete(req.ip);
-  s.lastLogin = C.now();
+  TEAM.touchLogin(s, who);
   save();
-  res.json({ token: token(s), school: selfView(s) });
+  res.json({ token: token(s, who), school: selfView(s, who) });
 });
 
 /* ---------------- Espace connecté ---------------- */
@@ -213,13 +221,64 @@ router.use((req, res, next) => {
   try {
     const p = jwt.verify(h.startsWith('Bearer ') ? h.slice(7) : '', SECRET);
     const s = p.sch && data.schools[p.sch];
-    if (!s || s.status !== 'active' || (s.tokenVersion || 0) !== p.v) throw new Error();
+    const memberId = p.m || TEAM.OWNER;
+    if (!s || s.status !== 'active' || TEAM.versionOf(s, memberId) !== p.v) throw new Error();
     req.school = s;
+    req.memberId = memberId;
+    req.actor = TEAM.actor(s, memberId);
+    if (!req.actor) throw new Error();
   } catch { return res.status(401).json({ error: 'Session expirée. Reconnectez-vous.' }); }
+  // Chaque rubrique demande un droit ; la gestion de l'équipe est réservée au responsable principal.
+  const need = rightFor(req.method, req.path);
+  if (need === 'owner' && !req.actor.owner) return res.status(403).json({ error: 'Réservé au responsable principal de l’établissement.' });
+  if (need && need !== 'owner' && !req.actor.rights[need]) return res.status(403).json({ error: `Vous n’avez pas le droit « ${TEAM_RIGHTS[need]} ». Demandez-le au responsable principal de l’établissement.` });
   next();
 });
+const TEAM_RIGHTS = require('./equipe-etablissement').RIGHTS;
+function rightFor(method, p) {
+  if (/^\/(me|upload|notices|badges)$/.test(p) && method === 'GET') return null;
+  if (p === '/me' && method === 'PATCH') return 'channel';
+  if (/^\/(upload|notices)/.test(p)) return null;
+  if (/^\/(me\/password|team)/.test(p)) return 'owner';
+  if (/^\/posts/.test(p)) return 'posts';
+  if (/^\/inquiries/.test(p)) return 'inquiries';
+  if (/^\/(stats|reports)/.test(p)) return 'stats';
+  if (/^\/(offer|receipts)/.test(p)) return 'offer';
+  if (/^\/campaigns/.test(p)) return 'campaigns';
+  if (/^\/support/.test(p)) return 'support';
+  return 'owner';
+}
 
-router.get('/me', (req, res) => res.json(selfView(req.school)));
+router.get('/me', (req, res) => res.json(selfView(req.school, req.memberId)));
+
+// Compteurs du menu, selon les droits de la personne connectée.
+router.get('/badges', (req, res) => {
+  const s = req.school, r = req.actor.rights;
+  const inquiries = r.inquiries ? Object.values(data.inquiries).filter(q => q.schoolId === s.id).reduce((n, q) => n + O.inquiryView(q, 'school').unread, 0) : 0;
+  const support = r.support ? SUP.listFor('school', s.id).reduce((n, t) => n + t.unread, 0) : 0;
+  res.json({ inquiries, support });
+});
+
+/* ---------------- Mon équipe (responsable principal) ---------------- */
+router.get('/team', (req, res) => res.json(TEAM.list(req.school)));
+router.post('/team', (req, res) => res.json(TEAM.add(req.school, req.actor, req.body)));
+router.patch('/team/:id', (req, res) => res.json(TEAM.update(req.school, req.actor, req.params.id, req.body)));
+router.post('/team/:id/password', (req, res) => res.json(TEAM.regenerate(req.school, req.actor, req.params.id)));
+router.delete('/team/:id', (req, res) => { TEAM.remove(req.school, req.actor, req.params.id); res.json({ ok: true }); });
+router.post('/team/:id/transfer', (req, res) => {
+  if (!bcrypt.compareSync(String(req.body.password || ''), req.school.passwordHash)) throw httpError(400, 'Mot de passe incorrect : transmission annulée.');
+  TEAM.transfer(req.school, req.actor, req.params.id);
+  res.json({ ok: true });
+});
+// Le responsable principal peut renommer son propre poste affiché.
+router.patch('/team-owner', (req, res) => {
+  const s = req.school;
+  const name = clip(req.body.name, 60), role = clip(req.body.role, 60);
+  if (name.length < 2 || role.length < 2) throw httpError(400, 'Indiquez votre nom et votre poste.');
+  Object.assign(s, { ownerName: name, ownerRole: role });
+  save();
+  res.json(TEAM.list(s));
+});
 
 router.patch('/me', (req, res) => {
   const f = profileFields(req.body);
@@ -227,7 +286,7 @@ router.patch('/me', (req, res) => {
   Object.assign(f, officialFields(req.body, req.school));
   Object.assign(req.school, f);
   save();
-  res.json(selfView(req.school));
+  res.json(selfView(req.school, req.memberId));
 });
 
 router.patch('/me/password', (req, res) => {
@@ -238,7 +297,7 @@ router.patch('/me/password', (req, res) => {
   s.tokenVersion = (s.tokenVersion || 0) + 1;
   s.mustChangePassword = false;
   save();
-  res.json({ token: token(s) });
+  res.json({ token: token(s, TEAM.OWNER) });
 });
 
 router.post('/upload', upload.single('file'), async (req, res) => {
@@ -250,7 +309,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 /* Publications */
 router.get('/posts', (req, res) => {
   const list = O.postsOf(req.school.id);
-  res.json([...list].reverse().slice(0, 200).map(p => O.postView(p)));
+  res.json([...list].reverse().slice(0, 200).map(p => ({ ...O.postView(p), author: p.by || null })));
 });
 
 router.post('/posts', (req, res) => {
@@ -260,7 +319,7 @@ router.post('/posts', (req, res) => {
   const media = b.media ? cleanMedia(b.media) : null;
   if (!text && !media) throw httpError(400, 'La publication est vide.');
   const type = !media ? 'text' : /^image\//.test(media.mime) ? 'image' : /^video\//.test(media.mime) ? 'video' : 'document';
-  const p = { id: C.uid('p_'), schoolId: req.school.id, type, text, media, createdAt: C.now(), reactions: {}, viewerIds: [], admission: !!b.admission };
+  const p = { id: C.uid('p_'), schoolId: req.school.id, type, text, media, createdAt: C.now(), reactions: {}, viewerIds: [], admission: !!b.admission, by: TEAM.label(req.actor) };
   O.postsOf(req.school.id).push(p);
   save();
   O.notifyPost(req.school, p);
@@ -469,7 +528,6 @@ router.get('/reports/monthly', (req, res) => res.json(RP.monthly(req.school, req
 router.get('/reports/annual', (req, res) => res.json(RP.annual(req.school)));
 
 /* Contacter l'équipe Scola (support). */
-const SUP = backendRequire('./src/support-messages-a-l-equipe');
 router.get('/support', (req, res) => res.json({ tickets: SUP.listFor('school', req.school.id), topics: SUP.TOPICS }));
 router.post('/support', (req, res) => res.json(SUP.full(SUP.create('school', req.school.id, req.body), 'owner')));
 router.get('/support/:id', (req, res) => res.json(SUP.full(SUP.mine('school', req.school.id, req.params.id), 'owner')));
@@ -500,7 +558,7 @@ router.get('/inquiries', (req, res) => {
 
 router.get('/inquiries/:id', (req, res) => {
   const q = myInquiry(req);
-  res.json({ inquiry: O.inquiryView(q, 'school'), messages: O.visibleMessages(q, 'school').slice(-300) });
+  res.json({ inquiry: O.inquiryView(q, 'school'), messages: O.visibleMessages(q, 'school').slice(-300).map(m => (q.authors?.[m.id] ? { ...m, author: q.authors[m.id] } : m)) });
 });
 
 router.delete('/inquiries/:id', (req, res) => {
@@ -511,6 +569,8 @@ router.delete('/inquiries/:id', (req, res) => {
 router.post('/inquiries/:id/messages', (req, res) => {
   const q = myInquiry(req);
   const m = O.addInquiryMessage(q, 'school', req.body);
+  (q.authors ||= {})[m.id] = TEAM.label(req.actor);
+  save();
   res.json({ inquiry: O.inquiryView(q, 'school'), message: m });
 });
 

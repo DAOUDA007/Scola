@@ -8,6 +8,7 @@ import * as CAMP from '/etablissement/mes-campagnes.js';
 import * as STATS from '/etablissement/tableau-de-bord-statistiques.js';
 import * as RAPP from '/etablissement/rapports-mensuels.js';
 import * as AIDE from '/etablissement/contacter-scola.js';
+import * as TEAM from '/etablissement/mon-equipe.js';
 
 const root = $('#root');
 const TK = 'scola.etab.token';
@@ -239,15 +240,25 @@ function loginPage() {
 
 /* ======================= Espace connecté ======================= */
 const NAV = [['tableau', 'poll', 'Tableau de bord'], ['publications', 'megaphone', 'Publications'], ['messages', 'chat', 'Messages des élèves'], ['chaine', 'cap', 'Ma chaîne'],
-  ['formule', 'star', 'Ma formule'], ['campagnes', 'flash', 'Campagnes'], ['rapports', 'file', 'Rapports'], ['compte', 'key', 'Mon compte'], ['aide', 'help', 'Contacter Scola']];
+  ['formule', 'star', 'Ma formule'], ['campagnes', 'flash', 'Campagnes'], ['rapports', 'file', 'Rapports'], ['equipe', 'users', 'Mon équipe'], ['compte', 'key', 'Mon compte'], ['aide', 'help', 'Contacter Scola']];
+// Droit demandé par chaque page (la personne connectée ne voit que ce qui lui est permis).
+const PAGE_RIGHT = { tableau: 'stats', publications: 'posts', messages: 'inquiries', chaine: 'channel', formule: 'offer', campagnes: 'campaigns', rapports: 'stats', aide: 'support', equipe: 'owner', compte: null };
+function allowed(page) {
+  const need = PAGE_RIGHT[page];
+  if (!need) return true;
+  if (!ME?.me) return need !== 'owner';
+  return need === 'owner' ? ME.me.owner : !!ME.me.rights?.[need];
+}
+const homePage = () => (NAV.find(([k]) => allowed(k) && k !== 'compte') || ['compte'])[0];
+function logout() { tok.clear(); ME = null; location.hash = ''; publicPage(); }
 
 // Contexte partagé avec les modules Ma formule / Campagnes / Statistiques / Rapports.
 const CTX = {
   get: (u) => get(u), post: (u, b) => post(u, b), patch: (u, b) => patch(u, b), del: (u) => del(u),
   uploadFile: (f) => uploadFile(f), me: () => ME, setMe: (m) => { ME = m; drawBrand(); drawBanner(); }, cycles: () => CYCLES,
-  refresh: () => refreshBadge(),
+  refresh: () => refreshBadge(), logout: () => logout(),
 };
-for (const m of [OFFRE, CAMP, STATS, RAPP, AIDE]) m.setup(CTX);
+for (const m of [OFFRE, CAMP, STATS, RAPP, AIDE, TEAM]) m.setup(CTX);
 
 // Bandeau d'échéance (rappels J-60, J-30, J-7, période de grâce) en haut de toutes les pages.
 // Avertissements de l'administration non encore lus : en tête de toutes les pages.
@@ -269,7 +280,7 @@ async function start() {
   root.innerHTML = `<div class="et-app">
     <nav class="et-nav"><div class="et-brand" data-brand></div>
       <button class="et-menu-btn" data-menu>${icon('more', 'sm')}<span data-current>Menu</span>${icon('chevD', 'sm')}</button>
-      <div class="et-links">${NAV.map(([k, ic, l]) => `<a href="#/${k}" data-k="${k}">${icon(ic, 'sm')}<span>${l}</span></a>`).join('')}
+      <div class="et-links">${NAV.filter(([k]) => allowed(k)).map(([k, ic, l]) => `<a href="#/${k}" data-k="${k}">${icon(ic, 'sm')}<span>${l}</span></a>`).join('')}
         <div class="spacer"></div>
         <a href="/" target="_blank">${icon('ext', 'sm')}<span>Voir Scola</span></a>
         <a href="#" data-logout>${icon('logout', 'sm')}<span>Déconnexion</span></a></div></nav>
@@ -279,11 +290,11 @@ async function start() {
   $('[data-menu]').onclick = (e) => { e.stopPropagation(); nav.classList.toggle('open'); };
   $('.et-links').addEventListener('click', (e) => { if (e.target.closest('a')) nav.classList.remove('open'); });
   document.addEventListener('click', (e) => { if (!e.target.closest('.et-nav')) $('.et-nav')?.classList.remove('open'); });
-  $('[data-logout]').onclick = (e) => { e.preventDefault(); tok.clear(); ME = null; location.hash = ''; publicPage(); };
+  $('[data-logout]').onclick = (e) => { e.preventDefault(); logout(); };
   refreshBadge();
   timers.push(setInterval(refreshBadge, 30000));
   // Mot de passe provisoire donné par l'administration : à remplacer tout de suite.
-  if (ME.mustChangePassword) setTimeout(() => { location.hash = '#/compte'; toast('Choisissez votre propre mot de passe pour remplacer le mot de passe provisoire.'); }, 300);
+  if (ME.mustChangePassword && ME.me?.owner) setTimeout(() => { location.hash = '#/compte'; toast('Choisissez votre propre mot de passe pour remplacer le mot de passe provisoire.'); }, 300);
   route();
 }
 
@@ -291,27 +302,24 @@ function drawBrand() {
   const b = $('[data-brand]');
   if (b) b.innerHTML = `${avatar({ id: ME.id, name: ME.name, avatar: ME.logo }, 40)}<div style="min-width:0"><b>${esc(ME.name)}${ME.verified ? ` ${icon('check', 'xs')}` : ''}</b><small>${esc(ME.followers)} abonné${ME.followers > 1 ? 's' : ''}</small></div>`;
   const pl = $('[data-plan]');
-  if (pl && ME.offer) pl.innerHTML = `<a href="#/formule" class="tag ${ME.offer.status === 'active' ? 'ok' : ME.offer.status === 'grace' ? 'warn' : ''}">${esc(ME.offer.name)}</a>${ME.founder ? ' <span class="tag founder">Fondateur</span>' : ''}`;
+  if (pl && ME.offer) pl.innerHTML = (ME.me ? `<span class="et-who" title="Personne connectée">${icon('user', 'xs')} ${esc(ME.me.name)} · ${esc(ME.me.role)}</span> ` : '') + `<a href="#/formule" class="tag ${ME.offer.status === 'active' ? 'ok' : ME.offer.status === 'grace' ? 'warn' : ''}">${esc(ME.offer.name)}</a>${ME.founder ? ' <span class="tag founder">Fondateur</span>' : ''}`;
 }
 
 async function refreshBadge() {
   try {
-    const s = await get('/stats');
-    const a = $('.et-links a[data-k=messages]');
-    a?.querySelector('.badge')?.remove();
-    if (s.unread) a?.insertAdjacentHTML('beforeend', `<span class="badge">${s.unread}</span>`);
+    const s = await get('/badges');
+    for (const [k, n] of [['messages', s.inquiries], ['aide', s.support]]) {
+      const a = $(`.et-links a[data-k=${k}]`);
+      a?.querySelector('.badge')?.remove();
+      if (n) a?.insertAdjacentHTML('beforeend', `<span class="badge">${n}</span>`);
+    }
   } catch {}
-  // Réponses de l'équipe Scola non lues.
-  const n = await AIDE.unread();
-  const b = $('.et-links a[data-k=aide]');
-  b?.querySelector('.badge')?.remove();
-  if (n) b?.insertAdjacentHTML('beforeend', `<span class="badge">${n}</span>`);
 }
 
 function route() {
   if (!ME) return publicPage();
-  const [page, id] = (location.hash.replace(/^#\/?/, '') || 'tableau').split('/');
-  if (!NAV.some(n => n[0] === page)) { location.hash = '#/tableau'; return; }
+  const [page, id] = (location.hash.replace(/^#\/?/, '') || homePage()).split('/');
+  if (!NAV.some(n => n[0] === page) || !allowed(page)) { location.hash = '#/' + homePage(); return; }
   drawBanner();
   get('/me').then(m => { ME = m; drawBrand(); drawBanner(); }).catch(() => {});
   loadNotices();
@@ -324,7 +332,7 @@ function route() {
   const c = old.cloneNode(false);
   old.replaceWith(c);
   timers.slice(1).forEach(clearInterval); timers = timers.slice(0, 1);
-  ({ tableau: STATS.dashboard, publications, messages, chaine: channel, formule: OFFRE.formulePage, campagnes: CAMP.campagnesPage, rapports: RAPP.rapportsPage, compte: account, aide: AIDE.aidePage })[page](c, id);
+  ({ tableau: STATS.dashboard, publications, messages, chaine: channel, formule: OFFRE.formulePage, campagnes: CAMP.campagnesPage, rapports: RAPP.rapportsPage, compte: account, aide: AIDE.aidePage, equipe: TEAM.equipePage })[page](c, id);
 }
 addEventListener('hashchange', () => (ME ? route() : publicPage()));
 
@@ -373,7 +381,7 @@ async function publications(c) {
       const reacts = Object.entries(p.reactions).map(([e, n]) => `${e} ${n}`).join('  ');
       return `<div class="my-post" data-id="${p.id}"><div class="thumb" style="${p.type === 'image' ? `background-image:url('${esc(md.url)}')` : ''}">${thumb}</div>
         <div class="body"><div class="txt">${p.text ? formatText(p.text) : `<i class="faint">${esc(md?.name || '')}</i>`}</div>
-        <div class="meta2"><span>${esc(fullDate(p.createdAt))}${p.editedAt ? ' · modifié' : ''}</span><span>${icon('eye', 'xs')} ${p.views} vue${p.views > 1 ? 's' : ''}</span>${reacts ? `<span>${esc(reacts)}</span>` : ''}
+        <div class="meta2"><span>${esc(fullDate(p.createdAt))}${p.editedAt ? ' · modifié' : ''}${p.author ? ' · par ' + esc(p.author) : ''}</span><span>${icon('eye', 'xs')} ${p.views} vue${p.views > 1 ? 's' : ''}</span>${reacts ? `<span>${esc(reacts)}</span>` : ''}
           ${p.admission ? '<span class="tag">Inscriptions</span>' : ''}${p.featuredUntil ? `<span class="tag ok">${icon('star', 'xs')} Mise en avant jusqu'au ${esc(new Date(p.featuredUntil).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }))}</span>` : ''}
           <span style="flex:1"></span>
           ${p.featuredUntil ? '<button class="btn text" data-unfeature style="height:28px">Retirer la mise en avant</button>'
@@ -425,7 +433,7 @@ async function messages(c, openId) {
     const t = $('[data-thread]', c);
     const keep = t.querySelector('textarea')?.value || '';
     t.innerHTML = `<div class="student-card"><button class="icon-btn" data-back title="Retour">${icon('back')}</button>${avatar({ id: s.id, name: s.name, avatar: s.avatar }, 40)}<div><b>${esc(s.name)}</b><div class="faint" style="font-size:13px">${esc(s.className)}${s.country ? ' · ' + esc(s.country) : ''}${s.school ? ' · ' + esc(s.school) : ''}</div></div><span style="flex:1"></span><button class="btn text danger" data-del-thread title="Supprimer l'échange">${icon('trash', 'sm')} <span class="hide-sm">Supprimer</span></button></div>
-      <div class="msgs" data-msgs>${r.messages.map(m => `<div class="bub ${m.from === 'school' ? 'me' : ''} ${m.info ? 'info-req' : ''}">${m.info ? `<span class="tag ok" style="margin-bottom:4px;display:inline-block">${m.info.source === 'ad' ? 'Demande d\'informations · via votre publicité' : 'Demande d\'informations'}</span>\n` : ''}${m.postRef ? `<div class="quote" style="--qc:var(--brand)"><div class="q"><b>Votre publication</b><span>${esc(m.postRef.text)}</span></div></div>` : ''}${m.media ? `<a href="${esc(m.media.url)}" target="_blank" rel="noopener">📎 ${esc(m.media.name)}</a>\n` : ''}${m.text ? formatText(m.text) : ''}<small>${listTime(m.createdAt) === hhmm(m.createdAt) ? '' : esc(listTime(m.createdAt)) + ' · '}${hhmm(m.createdAt)}</small></div>`).join('')}</div>
+      <div class="msgs" data-msgs>${r.messages.map(m => `<div class="bub ${m.from === 'school' ? 'me' : ''} ${m.info ? 'info-req' : ''}">${m.info ? `<span class="tag ok" style="margin-bottom:4px;display:inline-block">${m.info.source === 'ad' ? 'Demande d\'informations · via votre publicité' : 'Demande d\'informations'}</span>\n` : ''}${m.postRef ? `<div class="quote" style="--qc:var(--brand)"><div class="q"><b>Votre publication</b><span>${esc(m.postRef.text)}</span></div></div>` : ''}${m.media ? `<a href="${esc(m.media.url)}" target="_blank" rel="noopener">📎 ${esc(m.media.name)}</a>\n` : ''}${m.text ? formatText(m.text) : ''}<small>${m.author ? esc(m.author) + ' · ' : ''}${listTime(m.createdAt) === hhmm(m.createdAt) ? '' : esc(listTime(m.createdAt)) + ' · '}${hhmm(m.createdAt)}</small></div>`).join('')}</div>
       <div class="reply"><textarea rows="1" data-reply maxlength="4000" placeholder="Répondre à ${esc(s.name)}…"></textarea><button class="btn" data-send>${icon('send', 'sm')}</button></div>`;
     const ta = $('[data-reply]', t);
     ta.value = keep;
@@ -497,6 +505,14 @@ function channel(c) {
 }
 
 function account(c) {
+  if (ME.me && !ME.me.owner) {
+    const RL = { posts: 'Publications', inquiries: 'Messages des élèves', channel: 'Ma chaîne', offer: 'Ma formule et paiements', campaigns: 'Campagnes', stats: 'Tableau de bord et rapports', support: 'Contacter Scola' };
+    c.innerHTML = `<div class="panel"><h2>Mon compte</h2><div class="pad" style="font-size:14.5px;line-height:1.9">
+        <b>${esc(ME.me.name)}</b> · ${esc(ME.me.role)}<br>Établissement : <b>${esc(ME.name)}</b> (${esc(ME.email)})<br>
+        Mes droits : ${Object.entries(RL).filter(([k]) => ME.me.rights[k]).map(([, l]) => `<span class="tag">${esc(l)}</span>`).join(' ') || 'aucun'}
+        <p class="hint">Votre mot de passe a été généré par Scola et vous a été remis par le responsable principal de l'établissement. En cas d'oubli, ou pour obtenir d'autres droits, adressez-vous à lui : il peut vous en générer un nouveau depuis « Mon équipe ».</p></div></div>`;
+    return;
+  }
   c.innerHTML = `<div class="panel"><h2>Changer le mot de passe</h2><form class="pad" data-f style="max-width:440px">
       <div class="field"><label>Mot de passe actuel</label><input class="input" type="password" name="currentPassword" required autocomplete="current-password"></div>
       <div class="field"><label>Nouveau mot de passe</label><input class="input" type="password" name="password" required minlength="8" autocomplete="new-password"></div>

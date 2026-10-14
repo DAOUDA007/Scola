@@ -27,3 +27,26 @@ Salut ! 👋 Découvre Scola, la messagerie des élèves et des étudiants : tu 
 
 Établissements scolaires et universitaires : présentez vos filières directement aux élèves et étudiants concernés grâce à votre chaîne d'orientation sur Scola. Publications, réponses aux questions, statistiques.
 Demandez votre espace sur https://scola-theta.vercel.app/etablissement/
+
+
+=== Publication pour les établissements (avec scola-etablissements-affiche.png) ===
+
+🏫 Écoles, instituts, universités : présentez votre établissement aux élèves qui vous cherchent.
+
+Sur Scola, les élèves et étudiants préparent leur orientation. Votre établissement peut y avoir sa chaîne officielle :
+
+✅ Publiez vos filières, vos inscriptions et vos journées portes ouvertes : vos abonnés sont prévenus
+✅ Répondez en privé aux questions des élèves : chaque question est une future inscription
+✅ Suivez vos résultats : abonnés, vues, questions, rapports mensuels
+✅ Lancez des campagnes ciblées : niveau, série, ville, domaine
+
+🎁 Démarrage gratuit · Offre Partenaire Fondateur réservée aux 100 premiers établissements
+👉 Demandez votre espace : https://scola-theta.vercel.app/etablissement/
+Chaque demande est vérifiée par l'équipe Scola.
+
+#Scola #Orientation #Établissements #Écoles #Universités #CôteDIvoire
+
+
+=== Message court pour un établissement (WhatsApp, avec scola-etablissements-statut-whatsapp.png) ===
+
+Bonjour 👋 Scola est la messagerie des élèves et étudiants. Votre établissement peut y présenter ses filières, répondre aux questions des futurs inscrits et suivre ses résultats. C'est gratuit pour commencer, et l'offre Fondateur est réservée aux 100 premiers : https://scola-theta.vercel.app/etablissement/
