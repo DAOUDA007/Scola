@@ -920,3 +920,15 @@ select option:disabled { color: var(--text-3); }
 .sup-reply { position: sticky; bottom: 0; background: var(--panel-2); }
 .sup-reply [data-file]:not(:empty) { display: block; padding: 6px 14px 0; }
 .menu-row .txt span .badge { margin-left: 6px; vertical-align: 1px; }
+
+/* Choix de l'établissement (suggestions) */
+.inst-pick { position: relative; }
+.inst-list { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); max-height: 280px; overflow-y: auto; padding: 4px; }
+.inst-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 9px; background: none; color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.inst-item:hover, .inst-item:focus-visible { background: var(--hover); outline: none; }
+.inst-item > svg.i { color: var(--brand); flex: none; }
+.inst-item small { display: block; color: var(--text-3); font-size: 12.5px; }
+.inst-item.add b { color: var(--brand-strong); }
+.inst-chosen { font-size: 13px; color: var(--text-3); margin-top: 6px; min-height: 0; }
+.inst-chosen.on { color: var(--ok, #16A34A); }
+.inst-chosen b { color: var(--text); }

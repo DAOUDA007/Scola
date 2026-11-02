@@ -1,7 +1,7 @@
 // Onglet Discussions : liste, filtres, recherche, archives et actions sur les discussions.
 import { $, h, esc, icon, avatar, listTime, fold, debounce, formatText, hhmm, morph } from './outils-communs.js';
 import { get, post, patch, del } from './appels-au-serveur.js';
-import { S, on, emit, user, chatTitle, chatEntity, isMuted, preview, sortedChats, draft, displayName, isClassmate } from './memoire-de-l-application.js';
+import { S, on, emit, user, groupOf, chatTitle, chatEntity, isMuted, preview, sortedChats, draft, displayName, isClassmate } from './memoire-de-l-application.js';
 import { toast, fail, ctxMenu, confirmBox, choose, pickMembers, pushPage, promptBox, modal, touchActive } from './fenetres-et-menus.js';
 import { nav } from './navigation-entre-ecrans.js';
 import * as INB from './boite-des-annonces.js';
@@ -48,7 +48,7 @@ export function chatItem(chat, { active = false } = {}) {
     const mine = m.senderId === S.me.id && m.type !== 'system';
     const who = (chat.type === 'group' || chat.type === 'team') && m.senderId && m.type !== 'system' && !m.deleted ? `${esc(mine ? 'Vous' : user(m.senderId).name.split(' ')[0])} : ` : '';
     prev = `${mine && !m.deleted ? tickIcon(m.status) : ''}${m.deleted ? icon('ban', 'xs') : ''}<span>${who}${esc(preview(m))}</span>`;
-  } else if (chat.type === 'group') prev = `<span>${S.cls?.memberCount || 0} membres</span>`;
+  } else if (chat.type === 'group') prev = `<span>${groupOf(chat.id)?.memberCount || 0} membres</span>`;
   else if (chat.type === 'team') prev = `<span>${chat.members?.length || 0} membres</span>`;
   const unread = chat.unread || (st.markedUnread ? 1 : 0);
   const muted = isMuted(chat);

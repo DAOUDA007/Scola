@@ -199,8 +199,10 @@ function move(list, i, dir) {
 // Renommage : les classes existantes suivent (clé, nom), sauf si une classe porte déjà le nouveau nom.
 function migrateClasses(match, change) {
   let moved = 0, conflicts = 0;
+  const oldNames = {};
   for (const cls of Object.values(data.classes)) {
-    if (!match(cls)) continue;
+    if (cls.kind === 'school' || !match(cls)) continue;
+    oldNames[cls.id] = cls.name;
     const next = { cycleLabel: cls.cycleLabel, filiere: cls.filiere, niveau: cls.niveau, ...change(cls) };
     const key = classKey(cls.country, cls.cycle, next.filiere, next.niveau);
     if (key !== cls.key && data.classKeys[key] && data.classKeys[key] !== cls.id) { conflicts++; continue; }
@@ -209,6 +211,16 @@ function migrateClasses(match, change) {
     Object.assign(cls, next);
     if (autoName) cls.name = className(cls.cycleLabel, cls.filiere, cls.niveau);
     moved++;
+  }
+  // Groupes de classe par établissement : mêmes champs, clé et nom que leur classe nationale.
+  for (const sc of Object.values(data.classes)) {
+    const nat = sc.kind === 'school' && oldNames[sc.nationalId] !== undefined && data.classes[sc.nationalId];
+    if (!nat) continue;
+    const key = nat.key + '|' + sc.institutionId;
+    if (key !== sc.key) { delete data.classKeys[sc.key]; data.classKeys[key] = sc.id; sc.key = key; }
+    const suffix = sc.name.startsWith(oldNames[sc.nationalId] + ' · ') ? sc.name.slice(oldNames[sc.nationalId].length) : null;
+    Object.assign(sc, { cycleLabel: nat.cycleLabel, filiere: nat.filiere, niveau: nat.niveau });
+    if (suffix !== null) sc.name = nat.name + suffix;
   }
   return { moved, conflicts };
 }
@@ -314,6 +326,7 @@ function adminView() {
   const use = {};
   const unlisted = {};
   for (const cls of Object.values(data.classes)) {
+    if (cls.kind === 'school') continue;
     const n = cls.memberIds?.length || 0;
     const add = (k) => { use[k] ||= { classes: 0, members: 0 }; use[k].classes++; use[k].members += n; };
     add('country|' + cls.country); add('cycle|' + cls.cycle);

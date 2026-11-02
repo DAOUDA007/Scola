@@ -210,6 +210,34 @@ Administration › **Filières et niveaux** (droit « Classes ») :
 - **Retirer** ne supprime ni classe ni élève : la valeur n'est simplement plus proposée.
 - Les listes modifiées sont enregistrées dans la base (`meta.catalog`). Le propriétaire peut *rétablir les listes d'origine*, avec son mot de passe.
 
+### Établissement obligatoire et groupe de la classe dans l'école
+
+À l'inscription, l'élève choisit son **établissement** (champ obligatoire). Il rejoint alors **deux groupes** :
+- le groupe national de sa classe, comme avant (ex. « BTS IDA · 1ère année », pour toute la Côte d'Ivoire) ;
+- le **groupe de sa classe dans son établissement** (ex. « BTS IDA · 1ère année · ETIC Korhogo »), réservé aux élèves de la même filière, du même niveau et de la même école.
+
+**Choix de l'établissement.** Pendant la saisie, Scola propose les établissements déjà connus : ceux choisis par d'autres élèves et ceux inscrits dans l'espace Établissements. Si l'école n'y est pas, l'élève l'ajoute. Les variantes simples d'un même nom sont regroupées automatiquement (majuscules, accents, points, « de », « du »…) : « ETIC Korhogo », « Etic de korhogo » et « E.T.I.C Korhogo » donnent le même groupe.
+
+**Administration › Écoles des élèves** (droit « Classes ») :
+- les noms ajoutés par les élèves arrivent « à vérifier » ; on peut les **valider** ou les **renommer**, ce qui renomme aussi les groupes ;
+- **fusionner** réunit un doublon (ex. « ETIK Korhogo ») avec le bon établissement : élèves et groupes passent dans l'établissement gardé, et l'ancien nom reste reconnu pour les prochaines inscriptions.
+
+**Règles.**
+- Le groupe d'école fonctionne comme le groupe national : messages, médias, appels, modération par l'administration, et liste des membres dans la fiche du groupe.
+- L'élève ne peut pas changer d'établissement lui-même : il écrit à l'équipe Scola, et un administrateur le change depuis *Utilisateurs › fiche › Modifier le profil*.
+- Quand l'administration change la classe d'un élève, son groupe d'école suit. Quand une filière est renommée, ses groupes d'école le sont aussi.
+- Les comptes créés avant cette règle choisissent leur établissement à leur prochaine ouverture de Scola.
+
+### Matricule des élèves et étudiants
+
+Chaque élève ou étudiant renseigne son **matricule** à l'inscription, à l'étape « Ton profil » : 8 chiffres suivis d'une lettre majuscule, par exemple `12345678A`.
+- Il est **unique** : un seul compte Scola par matricule. Le serveur le vérifie dès l'étape du profil, puis de nouveau à la création du compte.
+- Il est **privé** : seuls l'élève (Paramètres › Compte) et l'administration le voient.
+- Les comptes créés avant cette règle doivent le renseigner à leur prochaine ouverture de Scola, dans une fenêtre qu'on ne peut pas fermer.
+- Une fois enregistré, l'élève ne peut plus le modifier. Seule l'administration le corrige, depuis la fiche de l'élève (*Modifier le profil*) ; la correction est inscrite au journal.
+- L'administration peut rechercher un élève par son matricule.
+- Le mot de passe et le code PIN facultatif ne changent pas.
+
 ### Équipe d'un établissement
 
 Le compte de chaque école est celui du **responsable principal**. Dans **Mon équipe**, il ajoute jusqu'à 15 membres :

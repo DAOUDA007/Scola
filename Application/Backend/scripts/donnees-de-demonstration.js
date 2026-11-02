@@ -58,7 +58,7 @@ const PASSWORD = 'demo12345';
     const { cls } = C.ensureClass(r);
     const id = 'u_demo_' + key;
     data.users[id] = {
-      id, demo: true, phone, name, about: 'Compte de test', avatar: null, school: '', city, classId: cls.id, createdAt: t, lastSeen: t,
+      id, demo: true, phone, name, matricule: '9' + phone.replace(/\D/g, '').slice(-7) + 'D', about: 'Compte de test', avatar: null, school: '', city, classId: cls.id, createdAt: t, lastSeen: t,
       pinHash: null, pinHint: '', privacy: C.defaultPrivacy(), settings: C.defaultSettings(), blocked: [],
     };
     data.phones[phone] = id;

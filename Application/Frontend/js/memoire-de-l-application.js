@@ -4,6 +4,7 @@ import { stripFormat } from './outils-communs.js';
 export const S = {
   me: null,
   cls: null,
+  groups: new Map(),    // id -> groupe de la classe dans l'établissement (en plus de S.cls)
   members: new Map(),   // id -> utilisateur public
   chats: new Map(),     // id -> résumé de discussion
   msgs: new Map(),      // id discussion -> [messages] (chargés)
@@ -54,9 +55,12 @@ export class ChatMap extends Map {
 export const isClassmate = (u) => !!u && u.classId === S.me?.classId;
 export const groupish = (chat) => chat?.type === 'group' || chat?.type === 'team';
 
+// Groupe de classe d'une discussion : celui de l'établissement s'il s'agit de lui, sinon la classe nationale.
+export const groupOf = (id) => (id && S.groups.get(id)) || S.cls;
+
 export function chatTitle(chat) {
   if (!chat) return '';
-  if (chat.type === 'group') return S.cls?.name || 'Ma classe';
+  if (chat.type === 'group') return groupOf(chat.id)?.name || 'Ma classe';
   if (chat.type === 'team') return chat.name || 'Groupe';
   if (chat.type === 'broadcast') return chat.name || 'Liste de diffusion';
   if (chat.peerId === S.me.id) return `${S.me.name} (vous)`;
@@ -65,7 +69,7 @@ export function chatTitle(chat) {
 
 export function chatEntity(chat) {
   if (!chat) return null;
-  if (chat.type === 'group') return { ...S.cls, icon: S.cls?.icon };
+  if (chat.type === 'group') { const g = groupOf(chat.id); return { ...g, icon: g?.icon }; }
   if (chat.type === 'broadcast') return { id: chat.id, name: chat.name };
   if (chat.type === 'team') return { id: chat.id, name: chat.name };
   return user(chat.peerId);

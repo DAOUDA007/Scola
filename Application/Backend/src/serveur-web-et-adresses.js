@@ -83,6 +83,7 @@ app.use('/api/admin', admin.router);
 app.use('/api/school', school.router);
 app.use('/api/orientation', orientation.router);
 app.use('/api', auth.router);
+app.use('/api', require('./etablissements-des-eleves').router);
 app.use('/api', require('./annonces-et-avertissements').router);
 app.use('/api', require('./groupes-chefs-de-classe-et-contacts').router);
 app.use('/api', require('./support-messages-a-l-equipe').router);

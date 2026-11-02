@@ -5,7 +5,7 @@ const multer = require('multer');
 const { UPLOADS, storeMedia } = require('./base-de-donnees');
 const C = require('./donnees-classes-et-discussions');
 const push = require('./notifications-push');
-const { requireAuth, httpError, bcrypt, PASSWORD_MODE, SMS_ENABLED, sendCode, checkCode, isSchoolPhone } = require('./connexion-inscription-sms');
+const { requireAuth, httpError, bcrypt, PASSWORD_MODE, SMS_ENABLED, sendCode, checkCode, isSchoolPhone, checkMatricule } = require('./connexion-inscription-sms');
 const { data, save } = C;
 
 const router = express.Router();
@@ -54,7 +54,7 @@ function pushUser(u) {
 }
 
 function selfView(u) {
-  return { ...C.publicUser(u, u.id), phone: u.phone, classLeader: !!u.classLeader, hasPassword: !!u.passwordHash, mustChangePassword: !!u.mustChangePassword, city: u.city || '', cityAsked: !!u.cityAsked, privacy: u.privacy, settings: u.settings, blocked: u.blocked, hasPin: !!u.pinHash, pinHint: u.pinHint || '', stickers: u.stickers || [], favStickers: u.favStickers || [] };
+  return { ...C.publicUser(u, u.id), phone: u.phone, matricule: u.matricule || '', institutionId: u.institutionId || null, schoolClassId: u.schoolClassId || null, classLeader: !!u.classLeader, hasPassword: !!u.passwordHash, mustChangePassword: !!u.mustChangePassword, city: u.city || '', cityAsked: !!u.cityAsked, privacy: u.privacy, settings: u.settings, blocked: u.blocked, hasPin: !!u.pinHash, pinHint: u.pinHint || '', stickers: u.stickers || [], favStickers: u.favStickers || [] };
 }
 
 function isMedia(u) { return typeof u === 'string' && /^\/media\/[a-f0-9]{32}(\.[a-z0-9]{1,7})?$/.test(u); }
@@ -237,6 +237,9 @@ function myChats(user) {
   const out = [];
   const cls = C.classOf(user);
   if (cls) out.push(C.chatSummary(data.chats[cls.id], user.id));
+  // Groupe de la même classe dans son établissement.
+  const sc = user.schoolClassId && data.classes[user.schoolClassId];
+  if (sc && sc.memberIds.includes(user.id) && data.chats[sc.id]) out.push(C.chatSummary(data.chats[sc.id], user.id));
   for (const chat of Object.values(data.chats)) {
     if (chat.type === 'dm' && chat.members.includes(user.id)) {
       const uc = C.getUC(user.id, chat.id);
@@ -255,6 +258,9 @@ function classView(cls, viewerId) {
     cycle: cls.cycle, cycleLabel: cls.cycleLabel, filiere: cls.filiere, niveau: cls.niveau,
     createdAt: cls.createdAt, restricted: cls.restricted, settings: cls.settings,
     memberCount: cls.memberIds.length, inviteCode: cls.inviteCode,
+    kind: cls.kind || 'national', institutionId: cls.institutionId || null, institutionName: cls.kind === 'school' ? data.institutions?.[cls.institutionId]?.name || '' : '',
+    // Groupe d'école (petit) : liste des membres, tous camarades de la classe nationale.
+    ...(cls.kind === 'school' ? { memberIds: cls.memberIds } : {}),
   };
 }
 
@@ -283,6 +289,7 @@ router.get('/bootstrap', (req, res) => {
   res.json({
     me: selfView(u),
     class: cls && classView(cls, u.id),
+    schoolClass: u.schoolClassId && data.classes[u.schoolClassId]?.memberIds.includes(u.id) ? classView(data.classes[u.schoolClassId], u.id) : null,
     // Camarades de classe + contacts hors de la classe (discussions privées, groupes).
     members: [...(cls?.memberIds || []).map(id => C.publicUser(data.users[id], u.id)), ...social().relatedProfiles(u)].filter(Boolean),
     chats: myChats(u),
@@ -311,6 +318,24 @@ router.get('/qr', async (req, res) => {
 
 router.get('/me', (req, res) => res.json(selfView(req.user)));
 
+// Établissement des comptes créés avant qu'il soit obligatoire. Ensuite, seule l'équipe Scola le change.
+router.patch('/me/institution', (req, res) => {
+  const u = req.user;
+  if (u.institutionId) throw httpError(400, 'Ton établissement est déjà enregistré. Pour le changer, écris à l\'équipe Scola (Paramètres › Aide).');
+  const E = require('./etablissements-des-eleves');
+  E.join(u, E.resolve(req.body));
+  res.json({ me: selfView(u), schoolClass: classView(data.classes[u.schoolClassId], u.id), chat: C.chatSummary(data.chats[u.schoolClassId], u.id) });
+});
+
+// Matricule des comptes créés avant qu'il soit demandé. Une fois enregistré, seule l'équipe Scola le corrige.
+router.patch('/me/matricule', (req, res) => {
+  const u = req.user;
+  if (u.matricule) throw httpError(400, 'Ton matricule est déjà enregistré. Pour le corriger, écris à l\'équipe Scola (Paramètres › Aide).');
+  u.matricule = checkMatricule(req.body.matricule, u.id);
+  save();
+  res.json(selfView(u));
+});
+
 router.patch('/me', (req, res) => {
   const u = req.user, b = req.body;
   if (b.name !== undefined) {
@@ -319,7 +344,7 @@ router.patch('/me', (req, res) => {
     u.name = n;
   }
   if (b.about !== undefined) u.about = String(b.about).slice(0, 139);
-  if (b.school !== undefined) u.school = String(b.school).trim().slice(0, 80);
+  // L'établissement se choisit dans la liste (PATCH /me/institution) ; le corriger passe par l'équipe Scola.
   // Ville facultative (Orientation) : jamais montrée à la classe ni aux établissements.
   if (b.city !== undefined) { u.city = String(b.city || '').trim().replace(/\s+/g, ' ').slice(0, 60); u.cityAsked = true; }
   if (b.cityAsked === true) u.cityAsked = true;
@@ -504,7 +529,10 @@ router.get('/users/:id', (req, res) => {
 
 /* ---------------- Classe (groupe unique) ---------------- */
 
+// Groupe visé : celui de la classe nationale, ou (?id=) celui de la classe dans l'établissement.
 function myClass(req) {
+  const want = req.query.id || req.body?.classId;
+  if (want && want === req.user.schoolClassId && data.classes[want]?.memberIds.includes(req.user.id)) return data.classes[want];
   const cls = C.classOf(req.user);
   if (!cls) throw httpError(404, 'Classe introuvable.');
   return cls;

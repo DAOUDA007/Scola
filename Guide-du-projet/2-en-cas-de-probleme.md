@@ -19,6 +19,7 @@ Trouvez le symptôme, puis ouvrez le fichier indiqué. « Serveur » = `Applicat
 |---|---|
 | Impossible de se connecter, mot de passe refusé, compte bloqué 15 min | Serveur `connexion-inscription-sms.js` |
 | Les **SMS** n'arrivent pas | Serveur `connexion-inscription-sms.js` (fonction `sendSms`) + téléphone Android **textbee** + variables `SMS_PROVIDER`, `TEXTBEE_API_KEY` |
+| Matricule refusé, « déjà utilisé », ou à corriger | Administration › Utilisateurs › fiche de l'élève › *Modifier le profil* ; code : Serveur `connexion-inscription-sms.js` (fonction `checkMatricule`) |
 | Écran d'accueil Élève / Établissement, formulaire d'inscription | Élèves `ecrans-connexion-inscription.js` |
 | Un élève est déconnecté tout seul | Élèves `demarrage-application.js` ; Serveur `connexion-inscription-sms.js` |
 | Mot de passe administrateur perdu | `Admin/Backend/reinitialiser-administrateur.js` (`npm run admin:reset -- email`) |
@@ -42,6 +43,8 @@ Trouvez le symptôme, puis ouvrez le fichier indiqué. « Serveur » = `Applicat
 
 | Symptôme | Fichier |
 |---|---|
+| Deux noms pour la même école (doublon), établissement mal orthographié | **Administration › Écoles des élèves** › *Fusionner* ou *Renommer* (aucun code à toucher) |
+| Groupe de la classe dans l'école absent, élève dans le mauvais groupe d'école | Administration › Utilisateurs › fiche › *Modifier le profil* ; code : Serveur `etablissements-des-eleves.js` |
 | Une filière, une série ou un niveau manque à l'inscription | **Administration › Filières et niveaux** (aucun code à toucher) ; sinon Serveur `listes-pays-filieres-niveaux.js` |
 | Un élève est dans la mauvaise classe | Administration › Utilisateurs › fiche de l'élève |
 | Onglet Ma classe | Élèves `onglet-ma-classe.js` |

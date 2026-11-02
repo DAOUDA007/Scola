@@ -1,7 +1,7 @@
 // Panneaux d'informations : contact, groupe de classe, liste de diffusion, médias, infos de message.
 import { $, h, esc, icon, avatar, lastSeenText, fullDate, listTime, fileSize, extOf, docKind, copyText, formatText, fold, hhmm, pickFiles } from './outils-communs.js';
 import { get, post, patch, del, upload } from './appels-au-serveur.js';
-import { S, emit, user, displayName, chatTitle, isMuted, canEditClass, blocked, preview } from './memoire-de-l-application.js';
+import { S, emit, user, groupOf, displayName, chatTitle, isMuted, blocked, preview } from './memoire-de-l-application.js';
 import { toast, fail, ctxMenu, modal, confirmBox, choose, promptBox, pickMembers, pushPage } from './fenetres-et-menus.js';
 import { nav } from './navigation-entre-ecrans.js';
 import { live, muteChat, clearChat, deleteChat, toggleBlock, report } from './liste-des-discussions.js';
@@ -11,7 +11,7 @@ const DISAPPEAR = [{ value: 86400, label: '24 heures' }, { value: 604800, label:
 const disLabel = (s) => DISAPPEAR.find(x => x.value === s)?.label || 'Désactivé';
 
 export function openChatInfo(chat) {
-  if (chat.type === 'group') return openGroup();
+  if (chat.type === 'group') return openGroup(chat.id);
   if (chat.type === 'broadcast') return openBroadcast(chat);
   if (chat.type === 'team') return openTeam(chat);
   return openUser(chat.peerId);
@@ -145,16 +145,18 @@ export async function openUser(uid) {
 }
 
 /* ---------------- Groupe de classe ---------------- */
-export function openGroup() {
+export function openGroup(gid) {
+  const G = () => groupOf(gid);
+  const classQ = () => (G().kind === 'school' ? '?id=' + G().id : '');
   nav.openDrawer({
     title: 'Infos du groupe',
     render: (body) => {
       let q = '';
       const draw = () => {
-        const c = S.cls;
+        const c = G();
         const chat = S.chats.get(c.id);
-        const canEdit = canEditClass();
-        const members = [...S.members.values()].filter(u => !u.deleted && u.classId === c.id)
+        const canEdit = !!c.settings?.membersEditInfo;
+        const members = (c.kind === 'school' ? (c.memberIds || []).map(id => S.members.get(id)).filter(Boolean) : [...S.members.values()].filter(u => u.classId === c.id)).filter(u => !u.deleted)
           .sort((a, b) => (b.id === S.me.id) - (a.id === S.me.id) || a.name.localeCompare(b.name, 'fr'));
         const shown = members.filter(u => fold(u.name).includes(fold(q)));
         body.innerHTML = `
@@ -162,7 +164,7 @@ export function openGroup() {
             <div data-icon style="display:inline-block">${avatar({ ...c, icon: c.icon }, 180, { group: true })}</div>
             <h3 class="edit-line" style="justify-content:center">${esc(c.name)} ${canEdit ? `<button class="icon-btn" data-a="name" title="Renommer">${icon('edit', 'sm')}</button>` : ''}</h3>
             <p>Groupe · ${c.memberCount} membre${c.memberCount > 1 ? 's' : ''}</p>
-            <p class="faint" style="font-size:13px">${esc(c.cycleLabel)} · ${esc(c.filiere)} · ${esc(c.niveau)} — ${esc(c.country)}</p>
+            <p class="faint" style="font-size:13px">${esc(c.cycleLabel)} · ${esc(c.filiere)} · ${esc(c.niveau)} — ${esc(c.kind === 'school' ? c.institutionName : c.country)}</p>
             <div class="profile-actions">
               <button data-a="audio">${icon('phone')}Audio</button>
               <button data-a="video">${icon('video')}Vidéo</button>
@@ -179,7 +181,7 @@ export function openGroup() {
             ${c.inviteCode ? row('link', 'Inviter via un lien', 'Partager le lien d\'inscription de la classe', 'data-a="invite"') : ''}
             ${c.settings.readOnly ? row('lock', 'Groupe fermé en écriture', 'L\'administration a temporairement réservé la publication.') : ''}
             ${row('shield', 'Géré par l\'administration de Scola', 'Les réglages et la modération de ce groupe sont assurés par l\'administration du site. Signalez tout abus depuis un message ou un profil.')}
-            ${row('lock', 'Groupe fermé', 'Réservé aux élèves/étudiants de cette filière et de ce niveau. Personne ne peut y être ajouté ou s\'y inscrire depuis une autre classe.')}
+            ${row('lock', 'Groupe fermé', c.kind === 'school' ? `Réservé aux élèves/étudiants de cette filière et de ce niveau inscrits à ${esc(c.institutionName)}.` : 'Réservé aux élèves/étudiants de cette filière et de ce niveau. Personne ne peut y être ajouté ou s\'y inscrire depuis une autre classe.')}
           </div>
           <div class="card">
             <div class="card-title"><span>${c.memberCount} membre${c.memberCount > 1 ? 's' : ''}</span>${icon('users', 'sm')}</div>
@@ -193,7 +195,7 @@ export function openGroup() {
           <div class="card">
             ${row('download', 'Exporter la discussion', '', 'data-a="export"')}
             ${row('x', 'Effacer la discussion', '', 'data-a="clear"', 'danger')}
-            ${row('info', 'Quitter le groupe', 'Impossible : votre classe est définie à l\'inscription. Vous pouvez mettre le groupe en sourdine ou l\'archiver.', '', 'faint')}
+            ${row('info', 'Quitter le groupe', c.kind === 'school' ? 'Impossible : ce groupe dépend de votre établissement. Pour en changer, écrivez à l\'équipe Scola (Paramètres › Aide).' : 'Impossible : votre classe est définie à l\'inscription. Vous pouvez mettre le groupe en sourdine ou l\'archiver.', '', 'faint')}
           </div>`;
         mediaStrip(c.id, $('[data-media]', body));
         const qi = $('[data-q]', body);
@@ -202,8 +204,8 @@ export function openGroup() {
           if (!canEdit) return c.icon && openViewer([{ url: c.icon, type: 'image', caption: c.name }], 0);
           ctxMenu($('[data-icon]', body), [
             c.icon && { icon: 'eye', label: 'Voir l\'icône', onClick: () => openViewer([{ url: c.icon, type: 'image', caption: c.name }], 0) },
-            { icon: 'image', label: 'Changer l\'icône', onClick: changeIcon },
-            c.icon && { icon: 'trash', label: 'Supprimer l\'icône', danger: true, onClick: () => patch('/class', { icon: null }).then(setCls).catch(fail) },
+            { icon: 'image', label: 'Changer l\'icône', onClick: () => changeIcon(classQ()) },
+            c.icon && { icon: 'trash', label: 'Supprimer l\'icône', danger: true, onClick: () => patch('/class' + classQ(), { icon: null }).then(setCls).catch(fail) },
           ], { align: 'left' });
         };
       };
@@ -214,18 +216,18 @@ export function openGroup() {
       body.addEventListener('click', async (e) => {
         const a = e.target.closest('[data-a]')?.dataset.a;
         const m = e.target.closest('[data-uid]')?.dataset.uid;
-        const chat = S.chats.get(S.cls.id);
+        const chat = S.chats.get(G().id);
         try {
           if (m) return memberMenu(m, e.target.closest('[data-uid]'));
-          if (a === 'name') { const v = await promptBox('Nom du groupe', { value: S.cls.name, max: 100 }); if (v) setCls(await patch('/class', { name: v })); }
-          if (a === 'desc') { const v = await promptBox('Description du groupe', { value: S.cls.description, max: 2048, multiline: true }); if (v !== null) setCls(await patch('/class', { description: v })); }
-          if (a === 'audio' || a === 'video') nav.startCall(S.cls.id, a === 'video');
-          if (a === 'search') { await nav.openChat(S.cls.id); $('[data-search]', nav.els.main)?.click(); }
+          if (a === 'name') { const v = await promptBox('Nom du groupe', { value: G().name, max: 100 }); if (v) setCls(await patch('/class' + classQ(), { name: v })); }
+          if (a === 'desc') { const v = await promptBox('Description du groupe', { value: G().description, max: 2048, multiline: true }); if (v !== null) setCls(await patch('/class' + classQ(), { description: v })); }
+          if (a === 'audio' || a === 'video') nav.startCall(G().id, a === 'video');
+          if (a === 'search') { await nav.openChat(G().id); $('[data-search]', nav.els.main)?.click(); }
           if (a === 'mute') await muteChat(chat);
           if (a === 'dis') await setDisappearing(chat);
-          if (a === 'wall') import('./onglet-parametres.js').then(x => x.pickWallpaper(S.cls.id));
-          if (a === 'invite') inviteLink();
-          if (a === 'export') import('./appels-au-serveur.js').then(x => x.downloadAuth(`/chats/${S.cls.id}/export`, 'discussion.txt')).catch(fail);
+          if (a === 'wall') import('./onglet-parametres.js').then(x => x.pickWallpaper(G().id));
+          if (a === 'invite') inviteLink(G());
+          if (a === 'export') import('./appels-au-serveur.js').then(x => x.downloadAuth(`/chats/${G().id}/export`, 'discussion.txt')).catch(fail);
           if (a === 'clear') clearChat(chat);
         } catch (er) { fail(er); }
       });
@@ -233,14 +235,14 @@ export function openGroup() {
   });
 }
 
-function setCls(c) { S.cls = c; emit('class'); }
+function setCls(c) { if (c.kind === 'school') S.groups.set(c.id, c); else S.cls = c; emit('class'); }
 
-async function changeIcon() {
+async function changeIcon(q = '') {
   const files = await pickFiles({ accept: 'image/*' });
   if (!files) return;
   const cropped = await cropImage(files[0], { title: 'Recadrer l\'icône du groupe' });
   if (!cropped) return;
-  try { const f = await upload(cropped); setCls(await patch('/class', { icon: f.url })); toast('Icône mise à jour'); } catch (e) { fail(e); }
+  try { const f = await upload(cropped); setCls(await patch('/class' + q, { icon: f.url })); toast('Icône mise à jour'); } catch (e) { fail(e); }
 }
 
 function memberMenu(uid, anchor) {
@@ -260,13 +262,13 @@ function memberMenu(uid, anchor) {
   ]);
 }
 
-function inviteLink() {
+function inviteLink(g = S.cls) {
   nav.openDrawer({
     title: 'Lien d\'invitation', stack: true,
     render: async (body) => {
       const draw = async () => {
-        const link = `${location.origin}/?join=${S.cls.inviteCode}`;
-        body.innerHTML = `<div class="profile-top">${avatar(S.cls, 80, { group: true })}<h3 style="font-size:17px;margin-top:10px">${esc(S.cls.name)}</h3>
+        const link = `${location.origin}/?join=${g.inviteCode}`;
+        body.innerHTML = `<div class="profile-top">${avatar(g, 80, { group: true })}<h3 style="font-size:17px;margin-top:10px">${esc(g.name)}</h3>
           <p style="word-break:break-all;font-size:13.5px"><a href="${esc(link)}" target="_blank">${esc(link)}</a></p>
           <p class="faint" style="font-size:12.5px">Toute personne qui s'inscrit avec ce lien voit sa classe pré-remplie. Elle doit tout de même vérifier son numéro.</p>
           <div data-qr style="width:200px;height:200px;margin:12px auto;background:#fff;border-radius:8px"></div></div>
@@ -275,7 +277,7 @@ function inviteLink() {
         body.onclick = async (e) => {
           const a = e.target.closest('[data-a]')?.dataset.a;
           if (a === 'copy') copyText(link).then(() => toast('Lien copié'));
-          if (a === 'share') navigator.share({ title: 'Rejoins ma classe sur Scola', text: `Rejoins « ${S.cls.name} » sur Scola !`, url: link }).catch(() => {});
+          if (a === 'share') navigator.share({ title: 'Rejoins ma classe sur Scola', text: `Rejoins « ${g.name} » sur Scola !`, url: link }).catch(() => {});
         };
       };
       draw();
@@ -317,7 +319,7 @@ function openBroadcast(chat) {
 
 /* ---------------- Messages éphémères ---------------- */
 export async function setDisappearing(chat) {
-  if (chat.type === 'group' && !canEditClass()) return toast('Ce réglage du groupe est géré par l\'administration de Scola.');
+  if (chat.type === 'group' && !groupOf(chat.id)?.settings?.membersEditInfo) return toast('Ce réglage du groupe est géré par l\'administration de Scola.');
   const v = await choose('Messages éphémères', DISAPPEAR, chat.disappearing || 0, { note: 'Les nouveaux messages disparaîtront de la discussion après la durée choisie.', okLabel: 'Valider' });
   if (v === null || v === (chat.disappearing || 0)) return;
   try { const s = await patch(`/chats/${chat.id}/disappearing`, { seconds: v }); S.chats.set(s.id, s); emit('chats'); emit('chat:meta', s.id); } catch (e) { fail(e); }

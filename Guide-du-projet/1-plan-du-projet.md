@@ -30,6 +30,7 @@
 | `src/temps-reel-messages-et-appels.js` | le **direct** : « en ligne », « écrit… », accusés de lecture, **appels audio et vidéo** |
 | `src/notifications-push.js` | notifications sur le téléphone même quand Scola est fermé |
 | `src/envoi-emails.js` | envoi des e-mails (codes des établissements, alertes) |
+| `src/etablissements-des-eleves.js` | **établissement de chaque élève** et **groupe de sa classe dans son école** : suggestions, regroupement des variantes de noms, fusion des doublons |
 | `src/listes-pays-filieres-niveaux.js` | listes **pays, cycles, filières/séries, niveaux** (modifiables dans l'administration) |
 | `src/annonces-et-avertissements.js` | **annonces** de l'administration et avertissements reçus par les élèves |
 | `src/groupes-chefs-de-classe-et-contacts.js` | groupes créés par les **chefs de classe**, discussions avec les **contacts** du téléphone |
@@ -60,6 +61,7 @@
 | Fichier | Ce qu'il fait |
 |---|---|
 | `demarrage-application.js` | **démarrage** de l'application, connexion au direct, bandeau « hors connexion » |
+| `choix-etablissement.js` | champ « Ton établissement » avec suggestions (inscription, demande aux anciens comptes, administration) |
 | `ecrans-connexion-inscription.js` | écrans **Élève / Établissement**, connexion, inscription, choix de la classe |
 | `liste-des-discussions.js` | onglet **Discussions** : liste, recherche, nouvelle discussion, groupes, contacts |
 | `conversation-ouverte.js` | une **conversation** : écrire, joindre, vocaux, réactions, appui long |
@@ -99,6 +101,7 @@
 | `Frontend/abonnements-et-offres.js` | pages **Abonnements** et **Offres et tarifs**, reçus |
 | `Frontend/campagnes-publicitaires.js` | page **Campagnes** |
 | `Frontend/support-messages.js` | page **Support** |
+| `Frontend/ecoles-des-eleves.js` | page **Écoles des élèves** : valider, renommer, fusionner les établissements |
 | `Frontend/filieres-et-niveaux.js` | page **Filières et niveaux** |
 | `Frontend/nettoyage-donnees-test.js` | page **Nettoyage** (propriétaire) |
 | `Frontend/style-administration.css` | apparence de l'administration |

@@ -28,7 +28,7 @@ module.exports = function realtime(io) {
 
   function markDelivered(u) {
     const t = C.now();
-    const chatIds = [u.classId, ...Object.values(data.chats).filter(c => (c.type === 'dm' || c.type === 'team') && c.members.includes(u.id)).map(c => c.id)];
+    const chatIds = [u.classId, ...(u.schoolClassId ? [u.schoolClassId] : []), ...Object.values(data.chats).filter(c => (c.type === 'dm' || c.type === 'team') && c.members.includes(u.id)).map(c => c.id)];
     const bySender = {};
     for (const id of chatIds) {
       const list = data.messages[id] || [];

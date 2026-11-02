@@ -1,7 +1,7 @@
 // Appels vocaux et vidéo (WebRTC, maillage pair-à-pair) + onglet « Appels ».
 import { $, h, esc, icon, avatar, listTime, duration, fullDate } from './outils-communs.js';
 import { get, post, del } from './appels-au-serveur.js';
-import { S, emit, user, chatTitle } from './memoire-de-l-application.js';
+import { S, emit, user, groupOf, chatTitle } from './memoire-de-l-application.js';
 import { toast, fail, ctxMenu, confirmBox, pickMembers, sound } from './fenetres-et-menus.js';
 import { nav } from './navigation-entre-ecrans.js';
 import { live } from './liste-des-discussions.js';
@@ -16,13 +16,13 @@ async function iceServers() {
 }
 
 function callChatTitle(c) {
-  if (c.group || S.chats.get(c.chatId)?.type === 'group') return S.cls?.name || 'Ma classe';
+  if (c.group || S.chats.get(c.chatId)?.type === 'group') return groupOf(c.chatId)?.name || 'Ma classe';
   const chat = S.chats.get(c.chatId);
   const peer = c.peerId || chat?.peerId || (c.callerId !== S.me.id ? c.callerId : null);
   return peer ? user(peer).name : chatTitle(chat);
 }
 function callEntity(c) {
-  if (c.group || S.chats.get(c.chatId)?.type === 'group') return { ...S.cls };
+  if (c.group || S.chats.get(c.chatId)?.type === 'group') return { ...groupOf(c.chatId) };
   const chat = S.chats.get(c.chatId);
   return user(c.peerId || chat?.peerId || c.callerId);
 }
@@ -82,7 +82,7 @@ export function render(side) {
 }
 
 async function chatForCall(c) {
-  if (c.group) return S.cls.id;
+  if (c.group) return c.chatId || S.cls.id;
   const peer = c.peerId || S.chats.get(c.chatId)?.peerId;
   const chat = await post('/chats/dm/' + peer);
   S.chats.set(chat.id, chat);
@@ -158,9 +158,9 @@ export function attach(socket) {
 function showIncoming(c) {
   closeIncoming();
   incoming = c;
-  const title = c.group ? S.cls.name : user(c.callerId).name;
+  const title = c.group ? groupOf(c.chatId).name : user(c.callerId).name;
   const el = h(`<div class="incoming" role="alertdialog">
-    <div class="row"><div class="big-av-pulse">${avatar(c.group ? S.cls : user(c.callerId), 56, { group: c.group })}</div>
+    <div class="row"><div class="big-av-pulse">${avatar(c.group ? groupOf(c.chatId) : user(c.callerId), 56, { group: c.group })}</div>
       <div class="grow"><b>${esc(title)}</b><div style="opacity:.8;font-size:14px">${c.group ? `${esc(user(c.callerId).name)} · ` : ''}Appel ${c.video ? 'vidéo' : 'vocal'} entrant…</div></div></div>
     <div class="acts">
       <button class="cbtn end" data-no title="Refuser">${icon('phoneOff')}</button>
@@ -435,7 +435,7 @@ function renderCall() {
     call.timer = setInterval(() => { const s = $('[data-status]', el); if (s && call) s.textContent = statusText(); }, 1000);
   }
   const chat = S.chats.get(call.chatId);
-  $('[data-title]', el).textContent = call.group ? (S.cls?.name || 'Appel de groupe') : chatTitle(chat);
+  $('[data-title]', el).textContent = call.group ? (groupOf(call.chatId)?.name || 'Appel de groupe') : chatTitle(chat);
   $('[data-status]', el).textContent = statusText();
 
   // Tuiles des participants (on conserve les éléments vidéo existants).
@@ -444,7 +444,7 @@ function renderCall() {
   const waiting = call.participants.filter(u => u !== S.me.id && !call.peers.has(u));
   const ids = peers.map(p => p.uid).concat(waiting);
   if (!ids.length) {
-    const ent = call.group ? S.cls : user(chat?.peerId);
+    const ent = call.group ? groupOf(call.chatId) : user(chat?.peerId);
     grid.innerHTML = `<div class="tile"><div class="state"><div class="big-av-pulse" style="display:inline-block">${avatar(ent, 120, { group: call.group })}</div><p>${esc(call.group ? 'En attente des participants…' : 'Appel en cours…')}</p></div></div>`;
   } else {
     grid.querySelectorAll('.tile').forEach(t => { if (!ids.includes(t.dataset.uid)) t.remove(); });

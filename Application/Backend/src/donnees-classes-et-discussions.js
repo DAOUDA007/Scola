@@ -322,9 +322,10 @@ function deleteAccount(u, note) {
   u.avatar = null;
   u.about = '';
   delete data.phones[u.phone];
-  if (cls) {
-    cls.memberIds = cls.memberIds.filter(x => x !== u.id);
-    cls.restricted = cls.restricted.filter(x => x !== u.id);
+  for (const c of [cls, data.classes[u.schoolClassId]]) {
+    if (!c) continue;
+    c.memberIds = c.memberIds.filter(x => x !== u.id);
+    c.restricted = c.restricted.filter(x => x !== u.id);
   }
   for (const s of Object.values(data.statuses)) if (s.userId === u.id) delete data.statuses[s.id];
   for (const s of Object.values(data.sessions)) if (s.userId === u.id) { delete data.sessions[s.id]; io?.to('s:' + s.id).emit('session:revoked'); }

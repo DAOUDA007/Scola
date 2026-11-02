@@ -109,7 +109,8 @@ router.get('/classes/lookup', (req, res) => {
 router.get('/invite/:code', (req, res) => {
   const cls = Object.values(data.classes).find(c => c.inviteCode === req.params.code);
   if (!cls) throw httpError(404, 'Lien d\'invitation invalide ou réinitialisé.');
-  res.json({ name: cls.name, icon: cls.icon, country: cls.country, cycle: cls.cycle, filiere: cls.filiere, niveau: cls.niveau, members: cls.memberIds.length, description: cls.description });
+  const inst = cls.kind === 'school' ? data.institutions?.[cls.institutionId] : null;
+  res.json({ name: cls.name, icon: cls.icon, country: cls.country, cycle: cls.cycle, filiere: cls.filiere, niveau: cls.niveau, members: cls.memberIds.length, description: cls.description, institution: inst ? { institutionId: inst.id, name: inst.name } : null });
 });
 
 // Numéro déjà déclaré par un établissement (demande ou compte) : il ne peut pas servir à créer un
@@ -231,6 +232,22 @@ router.post('/auth/signup-start', (req, res) => {
 });
 
 // Création ou changement du mot de passe (élève connecté).
+/* --- Matricule : 8 chiffres + 1 lettre majuscule (ex. 12345678A), un seul compte par matricule --- */
+const normMatricule = (v) => String(v || '').replace(/[\s.\-]/g, '').toUpperCase();
+function checkMatricule(v, exceptUserId = null) {
+  const m = normMatricule(v);
+  if (!/^\d{8}[A-Z]$/.test(m)) throw httpError(400, 'Le matricule doit contenir 8 chiffres suivis d\'une lettre majuscule (ex. 12345678A).');
+  if (Object.values(data.users).some(u => !u.deleted && u.matricule === m && u.id !== exceptUserId)) {
+    throw httpError(400, 'Ce matricule est déjà utilisé par un autre compte Scola. Vérifie ta saisie ; si c\'est bien le tien, contacte l\'équipe Scola.');
+  }
+  return m;
+}
+// Vérification pendant l'inscription (avant le choix de la classe).
+router.post('/auth/matricule-check', (req, res) => {
+  try { jwt.verify(req.body.signupToken, SECRET); } catch { throw httpError(400, 'Inscription expirée, recommencez.'); }
+  res.json({ ok: true, matricule: checkMatricule(req.body.matricule) });
+});
+
 router.patch('/me/password', requireAuth, (req, res) => {
   const u = req.user;
   if (u.passwordHash && !u.mustChangePassword && !bcrypt.compareSync(String(req.body.currentPassword || ''), u.passwordHash)) throw httpError(400, 'Mot de passe actuel incorrect.');
@@ -302,6 +319,9 @@ router.post('/auth/register', (req, res) => {
   if (data.phones[phone] && !data.users[data.phones[phone]]?.deleted) throw httpError(400, 'Ce numéro est déjà inscrit.');
   const name = String(req.body.name || '').trim().slice(0, 40);
   if (name.length < 2) throw httpError(400, 'Indiquez votre nom (2 caractères minimum).');
+  const matricule = checkMatricule(req.body.matricule);
+  const E = require('./etablissements-des-eleves');
+  const inst = E.resolve(req.body.institution || { name: req.body.school });
   let r;
   try { r = catalog.resolve(req.body); } catch (e) { throw httpError(400, e.message); }
 
@@ -309,9 +329,9 @@ router.post('/auth/register', (req, res) => {
   const { cls, created } = C.ensureClass(r);
   const clsId = cls.id;
   data.users[id] = {
-    id, phone, name, about: String(req.body.about || 'Salut ! J\'utilise Scola.').slice(0, 139),
+    id, phone, name, matricule, about: String(req.body.about || 'Salut ! J\'utilise Scola.').slice(0, 139),
     avatar: typeof req.body.avatar === 'string' && req.body.avatar.startsWith('/media/') ? req.body.avatar : null,
-    school: String(req.body.school || '').trim().slice(0, 80),
+    school: inst.name, institutionId: inst.id,
     classId: clsId, createdAt: C.now(), lastSeen: C.now(), pinHash: null, pinHint: '', passwordHash: p.pw || null, phoneVerified: !!p.verified,
     privacy: C.defaultPrivacy(), settings: C.defaultSettings(), blocked: [],
   };
@@ -321,6 +341,8 @@ router.post('/auth/register', (req, res) => {
   // Personne ne « crée » un groupe : chaque élève rejoint celui de sa filière et de son niveau.
   C.systemMessage(clsId, `${name} a rejoint la classe`, { meta: { joined: id } });
   C.toUsers(cls.memberIds.filter(x => x !== id), 'member:join', C.publicUser(data.users[id], cls.memberIds[0]));
+  // Second groupe : la même classe, dans son établissement.
+  E.join(data.users[id], inst);
   res.json({ token: issueToken(id, req.body.device), created });
 });
 
@@ -350,4 +372,4 @@ router.post('/auth/link/approve', requireAuth, (req, res) => {
   res.json({ ok: true, device: l.device });
 });
 
-module.exports = { router, requireAuth, verifyToken, httpError, bcrypt, SECRET, jwt, checkPassword, PASSWORD_MODE, SMS_ENABLED, sendCode, checkCode, normPhone, isSchoolPhone };
+module.exports = { router, requireAuth, verifyToken, httpError, bcrypt, SECRET, jwt, checkPassword, PASSWORD_MODE, SMS_ENABLED, sendCode, checkCode, normPhone, isSchoolPhone, checkMatricule };

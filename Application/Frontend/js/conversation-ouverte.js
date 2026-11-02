@@ -1,7 +1,7 @@
 // Écran de conversation : messages, saisie, pièces jointes, vocaux, réactions, sélection…
 import { $, $$, h, esc, icon, avatar, lastSeenText, debounce, copyText, hhmm, download, dayLabel, fullDate, fold, pickFiles } from './outils-communs.js';
 import { get, post, patch, del, upload, downloadAuth } from './appels-au-serveur.js';
-import { S, on, emit, user, displayName, chatTitle, chatEntity, isMuted, blocked, preview, upsertMsg, draft } from './memoire-de-l-application.js';
+import { S, on, emit, user, groupOf, displayName, chatTitle, chatEntity, isMuted, blocked, preview, upsertMsg, draft } from './memoire-de-l-application.js';
 import { toast, fail, ctxMenu, modal, confirmBox, choose, pickMembers, placeAt, sound, closeMenus, ghostOf, touchActive } from './fenetres-et-menus.js';
 import { nav } from './navigation-entre-ecrans.js';
 import { live, typingText, chatMenu, muteChat, clearChat, deleteChat, toggleBlock, report } from './liste-des-discussions.js';
@@ -161,8 +161,9 @@ function renderShell() {
 function sendBlocked() {
   const chat = S.chats.get(cur.chatId);
   if (chat.type === 'group') {
-    if (S.cls.restricted?.includes(S.me.id)) return 'L\'administration de Scola a restreint vos messages dans ce groupe.';
-    if (S.cls.settings.readOnly) return 'L\'administration a temporairement fermé ce groupe en écriture. Vous pouvez toujours lire les messages.';
+    const g = groupOf(chat.id);
+    if (g.restricted?.includes(S.me.id)) return 'L\'administration de Scola a restreint vos messages dans ce groupe.';
+    if (g.settings.readOnly) return 'L\'administration a temporairement fermé ce groupe en écriture. Vous pouvez toujours lire les messages.';
   } else if (chat.type === 'dm' && chat.peerId !== S.me.id) {
     if (blocked(chat.peerId)) return { blocked: true };
     if (user(chat.peerId).deleted) return 'Ce compte a été supprimé. Vous ne pouvez plus lui écrire.';
@@ -175,9 +176,10 @@ function subtitle(chat) {
   const t = typingText(chat.id);
   if (t) return { text: t, live: true };
   if (chat.type === 'group') {
-    const ids = S.cls?.memberCount > 1 ? [...S.members.values()].filter(u => !u.deleted && u.classId === S.me.classId).map(u => u.id) : [];
+    const g = groupOf(chat.id);
+    const ids = g?.memberCount > 1 ? (g.kind === 'school' ? (g.memberIds || []) : [...S.members.values()].filter(u => !u.deleted && u.classId === S.me.classId).map(u => u.id)) : [];
     const names = ids.filter(x => x !== S.me.id).slice(0, 8).map(x => user(x).name.split(' ')[0]);
-    if (!names.length) return { text: `${S.cls?.memberCount || 1} membre · ${S.cls?.country || ''}` };
+    if (!names.length) return { text: `${g?.memberCount || 1} membre · ${g?.kind === 'school' ? g.institutionName : g?.country || ''}` };
     return { text: `${names.join(', ')}${ids.length > 9 ? '…' : ''}, Vous` };
   }
   if (chat.type === 'broadcast') return { text: `${chat.recipients.length} destinataires` };
@@ -533,7 +535,7 @@ function msgMenu(m, anchor, touch = false) {
   const hasText = !!m.text && !m.viewOnce;
   const editable = mine && ['text', 'image', 'video', 'document'].includes(m.type) && !m.viewOnce && Date.now() - m.createdAt < 15 * 60e3;
   const media = m.media && !m.viewOnce;
-  const pinAllowed = chat.type !== 'group' || S.cls.settings.membersPin !== false;
+  const pinAllowed = chat.type !== 'group' || groupOf(chat.id).settings.membersPin !== false;
   return ctxMenu(anchor, [
     !touch && { icon: 'smile', label: 'Réagir', onClick: () => reactBar(m, msgEl(m.id)?.querySelector('.bubble')) },
     { icon: 'reply', label: 'Répondre', onClick: () => setReply(m) },

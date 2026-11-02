@@ -7,6 +7,8 @@ import * as CMP from './campagnes-publicitaires.js';
 import * as SUP from './support-messages.js';
 import * as CAT from './filieres-et-niveaux.js';
 import * as NET from './nettoyage-donnees-test.js';
+import * as ECO from './ecoles-des-eleves.js';
+import { institutionPicker } from '/js/choix-etablissement.js';
 
 const root = $('#root');
 const TK = 'scola.admin.token';
@@ -79,6 +81,7 @@ const NAV = [
   ['users', 'users', 'Utilisateurs'],
   ['classes', 'cap', 'Classes'],
   ['catalog', 'book', 'Filières et niveaux'],
+  ['institutions', 'cap', 'Écoles des élèves'],
   ['reports', 'flag', 'Signalements'],
   ['schools', 'megaphone', 'Établissements'],
   ['groups', 'users', 'Groupes'],
@@ -159,7 +162,7 @@ async function refreshBadge() {
 setInterval(() => { if (tok.get() && ME) refreshBadge(); }, 30000);
 
 // Zone de chaque page ; le propriétaire voit tout, les autres selon les droits qu'il leur donne.
-const PAGE_SECTION = { users: 'users', classes: 'classes', catalog: 'classes', reports: 'reports', schools: 'schools', groups: 'groups', support: 'support', announce: 'announce', billing: 'billing', receipt: 'billing', campaigns: 'campaigns', offers: 'offers', admins: 'owner', maintenance: 'owner' };
+const PAGE_SECTION = { users: 'users', classes: 'classes', catalog: 'classes', institutions: 'classes', reports: 'reports', schools: 'schools', groups: 'groups', support: 'support', announce: 'announce', billing: 'billing', receipt: 'billing', campaigns: 'campaigns', offers: 'offers', admins: 'owner', maintenance: 'owner' };
 function allowed(page) {
   const sec = PAGE_SECTION[page];
   if (!sec) return true;
@@ -182,7 +185,7 @@ function route() {
   old.replaceWith(c);
   window.scrollTo(0, 0);
   c.innerHTML = '<div class="empty">Chargement…</div>';
-  const pages = { dashboard, users, classes, reports, schools, announce, admins, account, billing: MON.billing, campaigns: CMP.campaigns, offers: MON.offersPage, groups, support: SUP.support, catalog: CAT.cataloguePage, maintenance: NET.nettoyagePage };
+  const pages = { dashboard, users, classes, reports, schools, announce, admins, account, billing: MON.billing, campaigns: CMP.campaigns, offers: MON.offersPage, groups, support: SUP.support, catalog: CAT.cataloguePage, maintenance: NET.nettoyagePage, institutions: ECO.ecolesPage };
   const fn = pages[page] || dashboard;
   if (page === 'users' && id) return userDetail(c, id);
   if (page === 'classes' && id) return classDetail(c, id);
@@ -202,6 +205,7 @@ CMP.setup(CTX);
 SUP.setup(CTX);
 CAT.setup(CTX);
 NET.setup(CTX);
+ECO.setup(CTX);
 
 /* ---------------- Tableau de bord ---------------- */
 async function dashboard(c) {
@@ -313,7 +317,8 @@ async function userDetail(c, id) {
     <div class="grid2">
       <section class="panel"><h2>Informations</h2><div class="pad"><dl class="kv">
         <dt>Classe</dt><dd><a href="#/classes/${u.classId}">${esc(u.className)}</a> — ${esc(u.country)}</dd>
-        <dt>Établissement</dt><dd>${esc(u.school || '—')}</dd>
+        <dt>Matricule</dt><dd>${u.matricule ? `<b>${esc(u.matricule)}</b>` : '<span class="tag warn">Pas encore renseigné</span>'}</dd>
+        <dt>Établissement</dt><dd>${esc(u.school || '—')}${u.schoolClassId ? ` · <a href="#/classes/${u.schoolClassId}">groupe de sa classe dans l'école</a>` : u.institutionId ? '' : ' <span class="tag warn">Pas encore choisi</span>'}</dd>
         <dt>Infos</dt><dd>${esc(u.about || '—')}</dd>
         <dt>Inscription</dt><dd>${esc(fullDate(u.createdAt))}</dd>
         <dt>Dernière activité</dt><dd>${u.online ? 'En ligne maintenant' : esc(fullDate(u.lastSeen))}</dd>
@@ -382,11 +387,14 @@ async function userDetail(c, id) {
 function editUser(u) {
   const body = h(`<div>
     <div class="field"><label>Nom</label><input class="input" data-n maxlength="40" value="${esc(u.name)}"></div>
-    <div class="field"><label>Établissement</label><input class="input" data-s maxlength="80" value="${esc(u.school || '')}"></div>
+    <div class="field"><label>Matricule (8 chiffres + 1 lettre majuscule)</label><input class="input" data-m maxlength="12" value="${esc(u.matricule || '')}" placeholder="12345678A" style="text-transform:uppercase"></div>
+    <div class="field"><label>Établissement (l'élève change de groupe d'école)</label><div data-inst></div></div>
     <div class="field"><label>Infos</label><input class="input" data-a maxlength="139" value="${esc(u.about || '')}"></div>
     ${u.avatar ? '<label class="choice"><input type="checkbox" data-rm> Retirer la photo de profil</label>' : ''}</div>`);
+  const inst = institutionPicker($('[data-inst]', body), { search: (q) => get('/institutions/suggest?q=' + encodeURIComponent(q)), value: u.institutionId ? { institutionId: u.institutionId, label: u.school } : null });
   modal({ title: 'Modifier le profil', body, buttons: [{ label: 'Annuler' }, { label: 'Enregistrer', cls: '', onClick: async () => {
-    await patch('/users/' + u.id, { name: $('[data-n]', body).value, school: $('[data-s]', body).value, about: $('[data-a]', body).value, removeAvatar: !!$('[data-rm]', body)?.checked });
+    const m = $('[data-m]', body).value.trim();
+    await patch('/users/' + u.id, { ...(m || u.matricule ? { matricule: m } : {}), name: $('[data-n]', body).value, ...(inst.value() && inst.value().institutionId !== u.institutionId ? { institution: inst.value() } : {}), about: $('[data-a]', body).value, removeAvatar: !!$('[data-rm]', body)?.checked });
     toast('Profil mis à jour');
     route();
   } }] });
@@ -436,7 +444,7 @@ async function classes(c) {
     const list = await get(`/classes?q=${encodeURIComponent(classState.q)}&sort=${classState.sort}`).catch(fail);
     if (!list) return;
     $('[data-t]', c).innerHTML = list.length ? `<table class="tbl"><thead><tr><th>Classe</th><th>Pays</th><th class="num">Membres</th><th class="num">En ligne</th><th class="num">Messages</th><th>Dernière activité</th><th></th></tr></thead><tbody>
-      ${list.map(k => `<tr data-go="#/classes/${k.id}"><td><div class="cell-user">${avatar(k, 34, { group: true })}<div><b>${esc(k.name)}</b><div class="faint" style="font-size:12px">${esc(k.cycleLabel)} · ${esc(k.filiere)}</div></div></div></td>
+      ${list.map(k => `<tr data-go="#/classes/${k.id}"><td><div class="cell-user">${avatar(k, 34, { group: true })}<div><b>${esc(k.name)}</b>${k.kind === 'school' ? ' <span class="tag">École</span>' : ''}<div class="faint" style="font-size:12px">${esc(k.cycleLabel)} · ${esc(k.filiere)}${k.kind === 'school' ? ' · ' + esc(k.institutionName) : ''}</div></div></div></td>
         <td>${esc(k.country)}</td><td class="num">${num(k.members)}</td><td class="num">${num(k.online)}</td><td class="num">${num(k.messages)}</td><td>${k.lastActivity ? esc(listTime(k.lastActivity)) : '—'}</td>
         <td>${k.settings.readOnly ? '<span class="tag warn">Lecture seule</span> ' : ''}${k.reportsPending ? `<span class="tag red">${k.reportsPending} signalement(s)</span>` : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Aucune classe.</div>';
   };

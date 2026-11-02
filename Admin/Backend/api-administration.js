@@ -11,7 +11,7 @@ const backendRequire = createRequire(path.join(BACKEND, 'package.json'));
 const express = backendRequire('express');
 const C = backendRequire('./src/donnees-classes-et-discussions');
 const catalog = backendRequire('./src/listes-pays-filieres-niveaux');
-const { httpError, bcrypt, SECRET, jwt } = backendRequire('./src/connexion-inscription-sms');
+const { httpError, bcrypt, SECRET, jwt, checkMatricule } = backendRequire('./src/connexion-inscription-sms');
 const { classView, upload } = backendRequire('./src/api-messagerie-eleves');
 const { storeMedia, usesPostgres } = backendRequire('./src/base-de-donnees');
 const push = backendRequire('./src/notifications-push');
@@ -21,6 +21,7 @@ const OF = backendRequire('./src/formules-et-tarifs');
 const INBOX = backendRequire('./src/annonces-et-avertissements');
 const SOCIAL = backendRequire('./src/groupes-chefs-de-classe-et-contacts');
 const SUP = backendRequire('./src/support-messages-a-l-equipe');
+const ETAB = backendRequire('./src/etablissements-des-eleves');
 const { data, save } = C;
 
 const router = express.Router();
@@ -89,6 +90,7 @@ function sectionsFor(method, p) {
   if (/^\/reports/.test(p)) return ['reports'];
   if (/^\/(schools|posts)/.test(p)) return ['schools', 'reports'];
   if (/^\/teams/.test(p)) return ['groups'];
+  if (/^\/institutions/.test(p)) return method === 'GET' ? ['classes', 'users'] : ['classes'];
   if (/^\/(announce|announcements)/.test(p)) return ['announce'];
   if (/^\/support/.test(p)) return ['support'];
   return 'owner';
@@ -272,7 +274,7 @@ router.get('/stats', (req, res) => {
   });
   let messages = 0, messagesToday = 0;
   for (const list of Object.values(data.messages)) for (const m of list) { if (m.type === 'system') continue; messages++; if (m.createdAt >= today.getTime()) messagesToday++; }
-  const classes = Object.values(data.classes);
+  const classes = Object.values(data.classes).filter(c => c.kind !== 'school');
   res.json({
     users: users.length,
     suspended: users.filter(u => u.suspended).length,
@@ -304,7 +306,7 @@ const fold = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLow
 function userRow(u) {
   const cls = data.classes[u.classId];
   return {
-    id: u.id, name: u.name, phone: u.phone, avatar: u.avatar, school: u.school, about: u.about,
+    id: u.id, name: u.name, phone: u.phone, matricule: u.matricule || '', institutionId: u.institutionId || null, schoolClassId: u.schoolClassId || null, avatar: u.avatar, school: u.school, about: u.about,
     classId: u.classId, className: cls?.name || '—', country: cls?.country || '',
     createdAt: u.createdAt, lastSeen: u.lastSeen, online: C.isOnline(u.id),
     suspended: u.suspended || null, hasPin: !!u.pinHash, hasPassword: !!u.passwordHash, classLeader: !!u.classLeader, restricted: !!cls?.restricted.includes(u.id),
@@ -327,7 +329,7 @@ function kick(u) {
 router.get('/users', (req, res) => {
   const q = fold(req.query.q);
   let list = Object.values(data.users).filter(u => !u.deleted);
-  if (q) list = list.filter(u => fold(u.name).includes(q) || u.phone.includes(q.replace(/\s/g, '')) || fold(u.school).includes(q));
+  if (q) list = list.filter(u => fold(u.name).includes(q) || u.phone.includes(q.replace(/\s/g, '')) || fold(u.school).includes(q) || fold(u.matricule).includes(q.replace(/\s/g, '')));
   if (req.query.classId) list = list.filter(u => u.classId === req.query.classId);
   if (req.query.status === 'suspended') list = list.filter(u => u.suspended);
   if (req.query.status === 'online') list = list.filter(u => C.isOnline(u.id));
@@ -358,9 +360,22 @@ router.patch('/users/:id', (req, res) => {
     if (n.length < 2) throw httpError(400, 'Nom trop court.');
     u.name = n;
   }
-  if (b.school !== undefined) u.school = String(b.school).trim().slice(0, 80);
+  // Établissement : choisi dans la liste (ou ajouté) ; l'élève change alors de groupe d'école.
+  if (b.institution) {
+    const inst = ETAB.resolve(b.institution, { by: 'admin' });
+    if (inst.id !== u.institutionId) {
+      ETAB.join(u, inst, { note: `${u.name} a été transféré(e) dans un autre établissement par l'administration` });
+      log(req, 'Établissement de l’élève changé', `${u.name} → ${inst.name}`);
+      C.toUser(u.id, 'reload', { reason: 'class' });
+    }
+  }
   if (b.about !== undefined) u.about = String(b.about).slice(0, 139);
   if (b.removeAvatar) u.avatar = null;
+  if (b.matricule !== undefined && b.matricule !== (u.matricule || '')) {
+    const before = u.matricule || 'aucun';
+    u.matricule = checkMatricule(b.matricule, u.id);
+    log(req, 'Matricule corrigé', `${u.name} : ${before} → ${u.matricule}`);
+  }
   // Changement de classe (l'élève s'est trompé à l'inscription).
   if (b.country && b.cycle && b.filiere && b.niveau) {
     let r;
@@ -376,6 +391,9 @@ router.patch('/users/:id', (req, res) => {
       cls.memberIds.push(u.id);
       u.classId = cls.id;
       C.systemMessage(cls.id, `${u.name} a rejoint la classe`, { meta: { joined: u.id } });
+      // Le groupe de l'école suit : même établissement, nouvelle classe.
+      const inst = u.institutionId && data.institutions?.[u.institutionId];
+      if (inst) ETAB.join(u, inst, { note: `${u.name} a changé de classe` });
       C.toUser(u.id, 'reload', { reason: 'class' });
     }
   }
@@ -438,6 +456,7 @@ function classRow(c) {
   const last = [...list].reverse().find(m => m.type !== 'system');
   return {
     id: c.id, name: c.name, country: c.country, cycle: c.cycle, cycleLabel: c.cycleLabel, filiere: c.filiere, niveau: c.niveau,
+    kind: c.kind || 'national', institutionName: c.kind === 'school' ? data.institutions?.[c.institutionId]?.name || '' : '',
     description: c.description, icon: c.icon, createdAt: c.createdAt, members: c.memberIds.length,
     online: c.memberIds.filter(id => C.isOnline(id)).length,
     messages: list.filter(m => m.type !== 'system').length, lastActivity: last?.createdAt || null,
@@ -475,6 +494,8 @@ router.post('/catalog/manage', (req, res) => {
 router.get('/classes', (req, res) => {
   const q = fold(req.query.q);
   let list = Object.values(data.classes);
+  if (req.query.kind === 'school') list = list.filter(c => c.kind === 'school');
+  else if (req.query.kind === 'national') list = list.filter(c => c.kind !== 'school');
   if (q) list = list.filter(c => fold(`${c.name} ${c.filiere} ${c.niveau} ${c.country} ${c.cycleLabel}`).includes(q));
   if (req.query.country) list = list.filter(c => c.country === req.query.country);
   const sort = req.query.sort || 'members';
@@ -673,6 +694,23 @@ router.delete('/teams/:id', (req, res) => {
   SOCIAL.removeTeam(req.params.id);
   log(req, 'Groupe supprimé', name || req.params.id);
   res.json({ ok: true });
+});
+
+/* ---------------- Établissements des élèves (groupes de classe par école) ---------------- */
+router.get('/institutions', (req, res) => res.json(ETAB.adminList(req.query.q)));
+router.get('/institutions/suggest', (req, res) => res.json(ETAB.suggest(req.query.q, 15)));
+router.patch('/institutions/:id', (req, res) => {
+  const before = ETAB.getInst(req.params.id).name;
+  const i = ETAB.rename(req.params.id, req.body);
+  log(req, 'Établissement renommé', `${before} → ${i.name}`);
+  res.json(ETAB.adminList().find(x => x.id === i.id));
+});
+router.post('/institutions/:id/validate', (req, res) => { const i = ETAB.validate(req.params.id); log(req, 'Établissement validé', i.name); res.json({ ok: true }); });
+router.post('/institutions/:id/merge', (req, res) => {
+  const from = ETAB.getInst(req.params.id).name, into = ETAB.getInst(req.body.into).name;
+  const r = ETAB.merge(req.params.id, req.body.into);
+  log(req, 'Établissements fusionnés', `${from} → ${into} (${r.moved} élève(s))`);
+  res.json(r);
 });
 
 /* ---------------- Support : messages des élèves et des établissements ---------------- */

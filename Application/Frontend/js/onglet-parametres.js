@@ -11,6 +11,7 @@ import { DIAL, deviceName } from './ecrans-connexion-inscription.js';
 import { pushSupported, enablePush, pushState } from './notifications-push.js';
 import { pickCity } from './orientation-a-la-une-et-ville.js';
 import { SUPPORT, loadSupport, supportBadge, openSupport } from './ecrire-a-l-equipe-scola.js';
+import { institutionPicker } from './choix-etablissement.js';
 
 let side;
 
@@ -81,7 +82,7 @@ export function openProfile() {
           <div class="card card-pad"><div class="field"><label>Nom</label><div class="edit-line"><span class="grow">${esc(S.me.name)}</span><button class="icon-btn" data-e="name">${icon('edit', 'sm')}</button></div></div>
             <div class="hint">Ce nom est visible par les membres de votre classe.</div></div>
           <div class="card card-pad"><div class="field"><label>Infos</label><div class="edit-line"><span class="grow">${formatText(S.me.about || '—')}</span><button class="icon-btn" data-e="about">${icon('edit', 'sm')}</button></div></div></div>
-          <div class="card card-pad"><div class="field"><label>Établissement</label><div class="edit-line"><span class="grow">${esc(S.me.school || '—')}</span><button class="icon-btn" data-e="school">${icon('edit', 'sm')}</button></div></div>
+          <div class="card card-pad"><div class="field"><label>Établissement</label><div class="edit-line"><span class="grow">${esc(S.me.school || '—')}</span>${S.me.institutionId ? '' : `<button class="icon-btn" data-e="school">${icon('edit', 'sm')}</button>`}</div></div>
             <div class="field"><label>Ville <small class="faint">(facultatif)</small></label><div class="edit-line"><span class="grow">${esc(S.me.city || '—')}</span><button class="icon-btn" data-e="city">${icon('edit', 'sm')}</button></div><div class="hint">Sert seulement à te proposer des établissements proches dans Orientation. Ni ta classe ni les établissements ne la voient.</div></div></div>
           <div class="card card-pad"><div class="field"><label>Téléphone</label><div>${esc(S.me.phone)}</div></div></div>
           <div class="card card-pad"><div class="field"><label>Classe</label><div>${esc(S.cls?.name || '')}</div><div class="hint">${esc(S.cls?.cycleLabel || '')} · ${esc(S.cls?.filiere || '')} · ${esc(S.cls?.niveau || '')} — ${esc(S.cls?.country || '')}. La classe est définie à l'inscription et ne peut pas être modifiée.</div></div></div>
@@ -108,6 +109,7 @@ export function openProfile() {
           return;
         }
         if (k === 'city') return pickCity();
+        if (k === 'school') return institutionFlow();
         const labels = { name: ['Votre nom', 40], school: ['Établissement', 80] };
         const v = await promptBox(labels[k][0], { value: S.me[k] || '', max: labels[k][1] });
         if (v !== null) patch('/me', { [k]: v }).then(setMe).catch(fail);
@@ -134,7 +136,48 @@ async function saveAvatar(file) {
 
 /* ---------------- Mot de passe ---------------- */
 // Création (ancien compte sans mot de passe), changement, ou remplacement du mot de passe provisoire.
-export function passwordFlow({ force = false } = {}) {
+// Matricule (8 chiffres + 1 lettre) : demandé une fois aux comptes créés avant qu'il soit obligatoire.
+// Établissement : demandé une fois aux comptes créés avant qu'il soit obligatoire. Ajoute le groupe de
+// sa classe dans son établissement. Ensuite, seule l'équipe Scola le change.
+export function institutionFlow({ force = false } = {}) {
+  const body = h(`<div>
+    <p class="muted" style="margin-top:0;font-size:14px">Nouveau : en plus du groupe national de ta classe, rejoins le <b>groupe de ta classe dans ton établissement</b>. Indique ton école ou ton université.</p>
+    <div class="field"><label>Mon établissement</label><div data-inst></div></div>
+    <p class="hint">Choisis-le dans la liste ; s'il n'y est pas, ajoute-le. Vérifie bien : pour le changer ensuite, il faudra écrire à l'équipe Scola.</p></div>`);
+  const pick = institutionPicker($('[data-inst]', body), { search: (q) => get('/institutions/suggest?q=' + encodeURIComponent(q)), value: S.me.school ? null : null });
+  modal({
+    title: 'Ton établissement', body, closable: !force,
+    buttons: [...(force ? [] : [{ label: 'Annuler' }]), { label: 'Rejoindre', cls: 'text', onClick: async () => {
+      if (!pick.value()) throw new Error('Choisis ton établissement dans la liste, ou ajoute-le s\'il n\'y est pas.');
+      const r = await patch('/me/institution', pick.value());
+      S.groups.set(r.schoolClass.id, r.schoolClass);
+      S.chats.set(r.chat.id, r.chat);
+      setMe(r.me);
+      emit('chats');
+      toast(`Tu as rejoint « ${r.schoolClass.name} »`);
+    } }],
+  });
+}
+
+export function matriculeFlow({ force = false, onDone } = {}) {
+  const body = h(`<div>
+    <p class="muted" style="margin-top:0;font-size:14px">Scola demande désormais le <b>matricule</b> de chaque élève et étudiant : un seul compte par matricule, pour éviter les faux comptes. Il n'est visible que par toi et l'équipe Scola.</p>
+    <div class="field"><label>Mon matricule</label><input class="input" data-mat maxlength="12" placeholder="Ex. 12345678A" autocapitalize="characters" autocomplete="off" spellcheck="false"></div>
+    <p class="hint">8 chiffres suivis d'une lettre majuscule. Vérifie bien : tu ne pourras plus le modifier toi-même.</p></div>`);
+  const inp = $('[data-mat]', body);
+  inp.oninput = () => { const p = inp.selectionStart; inp.value = inp.value.toUpperCase(); inp.setSelectionRange(p, p); };
+  modal({
+    title: 'Ton matricule', body, closable: !force, onClose: () => onDone?.(),
+    buttons: [...(force ? [] : [{ label: 'Annuler' }]), { label: 'Enregistrer', cls: 'text', onClick: async () => {
+      const v = inp.value.replace(/[\s.\-]/g, '').toUpperCase();
+      if (!/^\d{8}[A-Z]$/.test(v)) throw new Error('Le matricule doit contenir 8 chiffres suivis d\'une lettre majuscule (ex. 12345678A).');
+      setMe(await patch('/me/matricule', { matricule: v }));
+      toast('Matricule enregistré');
+    } }],
+  });
+}
+
+export function passwordFlow({ force = false, onDone } = {}) {
   const first = !S.me.hasPassword, temp = S.me.mustChangePassword;
   const body = h(`<div>
     <p class="muted" style="margin-top:0;font-size:14px">${temp ? 'Vous utilisez un mot de passe provisoire donné par l\'administration : choisissez votre propre mot de passe.'
@@ -143,7 +186,7 @@ export function passwordFlow({ force = false } = {}) {
     <div class="field"><label>Nouveau mot de passe (8 caractères minimum)</label><input class="input" type="password" data-new autocomplete="new-password"></div>
     <div class="field"><label>Confirmez</label><input class="input" type="password" data-new2 autocomplete="new-password"></div></div>`);
   modal({
-    title: first ? 'Créer mon mot de passe' : 'Mot de passe', body, closable: !(force && temp),
+    title: first ? 'Créer mon mot de passe' : 'Mot de passe', body, closable: !(force && temp), onClose: () => onDone?.(),
     buttons: [...(force && temp ? [] : [{ label: force ? 'Plus tard' : 'Annuler' }]), { label: 'Enregistrer', cls: 'text', onClick: async () => {
       const n = $('[data-new]', body).value;
       if (n !== $('[data-new2]', body).value) throw new Error('Les deux mots de passe ne correspondent pas.');
@@ -162,6 +205,7 @@ function accountPage() {
       const draw = () => {
         body.innerHTML = `
           ${row('lock', 'Mot de passe', S.me.hasPassword ? 'Pour vous reconnecter sur un autre téléphone' : 'Pas encore créé : créez-le pour pouvoir vous reconnecter', 'data-a="password"', S.me.hasPassword ? '' : 'warn')}
+          ${row('cap', 'Matricule', S.me.matricule ? esc(S.me.matricule) + ' · pour le corriger, écrivez à l\'équipe Scola' : 'À renseigner', 'data-a="matricule"', S.me.matricule ? '' : 'warn')}
           ${row('shieldCheck', 'Vérification en deux étapes', S.me.hasPin ? 'Activée — un code PIN est demandé à chaque nouvelle connexion' : 'Désactivée', 'data-a="pin"')}
           ${row('phone', 'Changer de numéro', esc(S.me.phone), 'data-a="number"')}
           ${row('laptop', 'Appareils connectés', '', 'data-a="devices"')}
@@ -174,6 +218,8 @@ function accountPage() {
         const a = e.target.closest('[data-a]')?.dataset.a;
         try {
           if (a === 'password') passwordFlow();
+          if (a === 'matricule' && !S.me.matricule) matriculeFlow();
+          if (a === 'matricule' && S.me.matricule) toast('Pour corriger ton matricule, écris à l\'équipe Scola : Paramètres › Aide.');
           if (a === 'pin') await pinFlow();
           if (a === 'number') await changeNumber();
           if (a === 'devices') openDevices();

@@ -65,6 +65,7 @@ async function boot(attempt = 0) {
 function applyBootstrap(b) {
   S.me = b.me;
   S.cls = b.class;
+  S.groups = new Map(b.schoolClass ? [[b.schoolClass.id, b.schoolClass]] : []);
   S.session = b.session;
   S.clockSkew = (b.serverTime || Date.now()) - Date.now();
   S.members = new Map(b.members.map(u => [u.id, u]));
@@ -92,7 +93,12 @@ async function loadApp() {
   connect();
   outbox.flush();
   // Connexion sans SMS : chaque compte doit avoir son mot de passe (ancien compte, ou mot de passe provisoire).
-  if (S.me.mustChangePassword || S.me.hasPassword === false) import('./onglet-parametres.js').then(m => m.passwordFlow({ force: true }));
+  // Puis le matricule, obligatoire pour tous : demandé une fois aux comptes créés avant.
+  // Puis l'établissement (pour le groupe de sa classe dans son école).
+  const askInstitution = () => { if (!S.me.institutionId) import('./onglet-parametres.js').then(m => m.institutionFlow({ force: true })); };
+  const askMatricule = () => { if (!S.me.matricule) import('./onglet-parametres.js').then(m => m.matriculeFlow({ force: true, onDone: askInstitution })); else askInstitution(); };
+  if (S.me.mustChangePassword || S.me.hasPassword === false) import('./onglet-parametres.js').then(m => m.passwordFlow({ force: true, onDone: askMatricule }));
+  else askMatricule();
   const params = new URLSearchParams(location.search);
   const q = params.get('chat');
   const u = params.get('user');
@@ -351,7 +357,7 @@ function connect() {
     if (S.cls) S.cls.memberCount = (S.cls.memberCount || 0) + 1;
     emit('members');
   });
-  socket.on('class:update', (c) => { S.cls = c; emit('class'); emit('chats'); });
+  socket.on('class:update', (c) => { if (c.kind === 'school') S.groups.set(c.id, c); else S.cls = c; emit('class'); emit('chats'); });
   // L'administration a modifié le compte (ex. changement de classe) : on recharge.
   socket.on('reload', () => location.reload());
 

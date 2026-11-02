@@ -1,6 +1,7 @@
 // Parcours de connexion et d'inscription.
 import { $, h, esc, icon, pickFiles } from './outils-communs.js';
 import { get, post, token } from './appels-au-serveur.js';
+import { institutionPicker } from './choix-etablissement.js';
 import { toast, ctxMenu } from './fenetres-et-menus.js';
 import { cropImage, takePhoto } from './photos-videos-fichiers.js';
 
@@ -328,8 +329,11 @@ function profileStep(init) {
     <p class="muted">Indique ton nom et, si tu veux, une photo. Tes camarades de classe les verront.</p>
     <button type="button" class="avatar-pick" title="Ajouter une photo">${reg.avatarUrl ? `<img src="${reg.avatarUrl}" alt="">` : icon('camera', 'lg')}</button>
     <div class="field"><label>Nom complet</label><input class="input" data-name maxlength="40" placeholder="Ex. Awa Koné" value="${esc(reg.name || '')}"></div>
+    <div class="field"><label>Matricule</label><input class="input" data-mat maxlength="12" placeholder="Ex. 12345678A" autocapitalize="characters" autocomplete="off" spellcheck="false" value="${esc(reg.matricule || '')}">
+      <small class="hint">8 chiffres suivis d'une lettre majuscule. Visible seulement par toi et l'équipe Scola.</small></div>
     <div class="field"><label>Infos (facultatif)</label><input class="input" data-about maxlength="139" placeholder="Salut ! J'utilise Scola." value="${esc(reg.about || '')}"></div>
-    <div class="field"><label>Établissement (facultatif)</label><input class="input" data-school maxlength="80" placeholder="Ex. Lycée Classique d'Abidjan, INP-HB, Pigier…" value="${esc(reg.school || '')}"></div>
+    <div class="field"><label>Ton établissement</label><div data-inst></div>
+      <small class="hint">Tu rejoindras aussi le groupe de ta classe dans ton établissement.</small></div>
     <div class="error-text" data-err></div>
     <button class="btn block" data-go>Suivant</button>`, true);
   // Photo de profil : importée ou prise, puis recadrée en cercle comme sur WhatsApp.
@@ -345,11 +349,22 @@ function profileStep(init) {
     { icon: 'camera', label: 'Prendre une photo', onClick: () => takePhoto({ video: false }).then(f => f && setPhoto(f)) },
     reg.avatarFile && { icon: 'trash', label: 'Retirer la photo', danger: true, onClick: () => { reg.avatarFile = reg.avatarUrl = null; $('.avatar-pick', card).innerHTML = icon('camera', 'lg'); } },
   ], { align: 'left' });
-  $('[data-go]', card).onclick = () => {
+  const inst = institutionPicker($('[data-inst]', card), { search: (q) => get('/institutions/suggest?q=' + encodeURIComponent(q)), value: reg.institution || (invite?.institution ? { ...invite.institution, label: invite.institution.name } : null), onChange: (v) => { reg.institution = v; } });
+  const mat = $('[data-mat]', card);
+  mat.oninput = () => { const p = mat.selectionStart; mat.value = mat.value.toUpperCase(); mat.setSelectionRange(p, p); };
+  $('[data-go]', card).onclick = async () => {
+    const err = $('[data-err]', card);
     reg.name = $('[data-name]', card).value.trim();
     reg.about = $('[data-about]', card).value.trim();
-    reg.school = $('[data-school]', card).value.trim();
-    if (reg.name.length < 2) return ($('[data-err]', card).textContent = 'Indique ton nom (2 caractères minimum).');
+    reg.institution = inst.value() ? { ...inst.value(), label: inst.label() } : null;
+    reg.matricule = mat.value.replace(/[\s.\-]/g, '').toUpperCase();
+    if (reg.name.length < 2) return (err.textContent = 'Indique ton nom (2 caractères minimum).');
+    if (!reg.institution) { inst.focus(); return (err.textContent = 'Choisis ton établissement dans la liste, ou ajoute-le s\'il n\'y est pas.'); }
+    if (!/^\d{8}[A-Z]$/.test(reg.matricule)) { mat.focus(); return (err.textContent = 'Le matricule doit contenir 8 chiffres suivis d\'une lettre majuscule (ex. 12345678A).'); }
+    const btn = $('[data-go]', card);
+    btn.disabled = true;
+    try { await post('/auth/matricule-check', { signupToken: reg.signupToken, matricule: reg.matricule }); }
+    catch (e) { btn.disabled = false; mat.focus(); return (err.textContent = e.message); }
     classStep();
   };
   $('[data-name]', card).focus();
@@ -417,7 +432,7 @@ function classStep() {
     if (!$('[data-rules]', card).checked) return (err.textContent = 'Merci d\'accepter la charte.');
     $('[data-go]', card).disabled = true;
     try {
-      const r = await post('/auth/register', { signupToken: reg.signupToken, name: reg.name, about: reg.about, school: reg.school, ...v, device: deviceName() });
+      const r = await post('/auth/register', { signupToken: reg.signupToken, name: reg.name, matricule: reg.matricule, about: reg.about, institution: (({ label, ...x }) => x)(reg.institution || {}), ...v, device: deviceName() });
       token.set(r.token);
       if (reg.avatarFile) {
         const { upload, patch } = await import('./appels-au-serveur.js');
