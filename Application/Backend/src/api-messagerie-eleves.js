@@ -54,7 +54,7 @@ function pushUser(u) {
 }
 
 function selfView(u) {
-  return { ...C.publicUser(u, u.id), phone: u.phone, matricule: u.matricule || '', institutionId: u.institutionId || null, schoolClassId: u.schoolClassId || null, classLeader: !!u.classLeader, hasPassword: !!u.passwordHash, mustChangePassword: !!u.mustChangePassword, city: u.city || '', cityAsked: !!u.cityAsked, privacy: u.privacy, settings: u.settings, blocked: u.blocked, hasPin: !!u.pinHash, pinHint: u.pinHint || '', stickers: u.stickers || [], favStickers: u.favStickers || [] };
+  return { ...C.publicUser(u, u.id), phone: u.phone, matricule: u.matricule || '', institutionId: u.institutionId || null, schoolClassId: u.schoolClassId || null, classRole: require('./etablissements-des-eleves').roleOf(u), hasPassword: !!u.passwordHash, mustChangePassword: !!u.mustChangePassword, city: u.city || '', cityAsked: !!u.cityAsked, privacy: u.privacy, settings: u.settings, blocked: u.blocked, hasPin: !!u.pinHash, pinHint: u.pinHint || '', stickers: u.stickers || [], favStickers: u.favStickers || [] };
 }
 
 function isMedia(u) { return typeof u === 'string' && /^\/media\/[a-f0-9]{32}(\.[a-z0-9]{1,7})?$/.test(u); }
@@ -260,7 +260,7 @@ function classView(cls, viewerId) {
     memberCount: cls.memberIds.length, inviteCode: cls.inviteCode,
     kind: cls.kind || 'national', institutionId: cls.institutionId || null, institutionName: cls.kind === 'school' ? data.institutions?.[cls.institutionId]?.name || '' : '',
     // Groupe d'école (petit) : liste des membres, tous camarades de la classe nationale.
-    ...(cls.kind === 'school' ? { memberIds: cls.memberIds } : {}),
+    ...(cls.kind === 'school' ? { memberIds: cls.memberIds, leaderId: cls.leaderId || null, deputyId: cls.deputyId || null } : {}),
   };
 }
 

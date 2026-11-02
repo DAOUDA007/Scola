@@ -48,7 +48,7 @@ Trouvez le symptôme, puis ouvrez le fichier indiqué. « Serveur » = `Applicat
 | Une filière, une série ou un niveau manque à l'inscription | **Administration › Filières et niveaux** (aucun code à toucher) ; sinon Serveur `listes-pays-filieres-niveaux.js` |
 | Un élève est dans la mauvaise classe | Administration › Utilisateurs › fiche de l'élève |
 | Onglet Ma classe | Élèves `onglet-ma-classe.js` |
-| Groupes des chefs de classe, contacts du téléphone | Serveur `groupes-chefs-de-classe-et-contacts.js` ; Élèves `liste-des-discussions.js` |
+| Chef ou sous-chef de classe à nommer : Administration › Classes › classe « École » ; groupes des chefs de classe, contacts du téléphone | Serveur `groupes-chefs-de-classe-et-contacts.js` ; Élèves `liste-des-discussions.js` |
 | Fiche d'un contact ou d'un groupe | Élèves `fiches-contact-et-groupe.js` |
 
 ## Annonces, support, paramètres

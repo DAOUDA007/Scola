@@ -274,7 +274,7 @@ function bindRows(c) {
 }
 
 function userBadges(u) {
-  return `${u.classLeader ? '<span class="tag founder">Chef de classe</span> ' : ''}${u.online ? '<span class="tag">En ligne</span> ' : ''}${u.suspended ? '<span class="tag red">Suspendu</span> ' : ''}${u.restricted ? '<span class="tag warn">Restreint</span> ' : ''}${u.hasPin ? `<span title="Vérification en deux étapes">${icon('lock', 'xs')}</span>` : ''}`;
+  return `${u.classRole === 'chef' ? '<span class="tag founder">Chef de classe</span> ' : u.classRole === 'sous-chef' ? '<span class="tag founder">Sous-chef</span> ' : ''}${u.online ? '<span class="tag">En ligne</span> ' : ''}${u.suspended ? '<span class="tag red">Suspendu</span> ' : ''}${u.restricted ? '<span class="tag warn">Restreint</span> ' : ''}${u.hasPin ? `<span title="Vérification en deux étapes">${icon('lock', 'xs')}</span>` : ''}`;
 }
 function userTable(list) {
   if (!list.length) return '<div class="empty">Aucun utilisateur.</div>';
@@ -335,7 +335,8 @@ async function userDetail(c, id) {
         ${u.hasPin ? `<button class="btn ghost" data-a="pin">${icon('key', 'sm')} Réinitialiser le code PIN</button>` : ''}
         <button class="btn ghost" data-a="logout">${icon('laptop', 'sm')} Déconnecter tous ses appareils</button>
         <button class="btn ${u.suspended ? '' : 'danger'}" data-a="suspend">${icon('shield', 'sm')} ${u.suspended ? 'Réactiver le compte' : 'Suspendre le compte'}</button>
-        <button class="btn ghost" data-a="leader">${icon('star', 'sm')} ${u.classLeader ? 'Retirer le rôle de chef de classe' : 'Nommer chef de classe'}</button>
+        ${u.schoolClassId ? `<button class="btn ghost" data-a="leader" data-role="${u.classRole === 'chef' ? '' : 'chef'}">${icon('star', 'sm')} ${u.classRole === 'chef' ? 'Retirer le rôle de chef de classe' : 'Nommer chef de classe'}</button>
+        <button class="btn ghost" data-a="leader" data-role="${u.classRole === 'sous-chef' ? '' : 'sous-chef'}">${icon('star', 'sm')} ${u.classRole === 'sous-chef' ? 'Retirer le rôle de sous-chef' : 'Nommer sous-chef'}</button>` : ''}
         <button class="btn ghost" data-a="temppw">${icon('key', 'sm')} Mot de passe provisoire${u.hasPassword ? '' : ' (aucun mot de passe)'}</button>
         <button class="btn ghost" data-a="warn">${icon('flag', 'sm')} Envoyer un avertissement</button>
         <button class="btn danger" data-a="delete">${icon('trash', 'sm')} Supprimer le compte</button>
@@ -349,8 +350,11 @@ async function userDetail(c, id) {
       if (a === 'edit') return editUser(u);
       if (a === 'warn') return sendWarning({ userId: u.id, name: u.name });
       if (a === 'leader') {
-        if (!(await confirmBox(u.classLeader ? `Retirer le rôle de chef de classe à ${u.name} ?` : `Nommer ${u.name} chef de classe ?`, u.classLeader ? 'Ses groupes existants restent en place.' : 'Il pourra demander la création de groupes avec des membres de sa classe ; chaque groupe sera soumis à votre validation.', { ok: 'Confirmer' }))) return;
-        await post(`/users/${u.id}/leader`, { on: !u.classLeader }); toast(u.classLeader ? 'Rôle retiré' : 'Chef de classe nommé'); return userDetail(c, u.id);
+        const role = e.target.closest('[data-role]').dataset.role || null;
+        const label = { chef: 'chef de classe', 'sous-chef': 'sous-chef de classe' };
+        if (!(await confirmBox(role ? `Nommer ${u.name} ${label[role]} ?` : `Retirer son rôle à ${u.name} ?`,
+          role ? `Dans le groupe de sa classe dans son établissement. Il pourra demander la création de groupes avec des membres de ce groupe, soumis à votre validation. S'il y avait déjà un ${label[role]}, celui-ci perd son rôle.` : 'Ses groupes existants restent en place.', { ok: 'Confirmer' }))) return;
+        await post(`/users/${u.id}/leader`, { role }); toast(role ? `${label[role][0].toUpperCase() + label[role].slice(1)} nommé` : 'Rôle retiré'); return userDetail(c, u.id);
       }
       if (a === 'temppw') {
         if (!(await confirmBox(`Mot de passe provisoire pour ${u.name} ?`, 'Un nouveau mot de passe est créé et l’ancien ne fonctionne plus. Transmettez-le à l’élève en personne ou par un moyen sûr : il devra le changer à sa prochaine connexion.', { ok: 'Créer' }))) return;
@@ -464,6 +468,10 @@ async function classDetail(c, id) {
       <div class="grow"><h2 style="margin:0;font-size:22px">${esc(k.name)}</h2><div class="muted">${esc(k.cycleLabel)} · ${esc(k.filiere)} · ${esc(k.niveau)} — ${esc(k.country)}</div>
       <div class="faint" style="font-size:13px;margin-top:4px">${num(k.members.length)} membres · ${num(k.online)} en ligne · ${num(k.messages)} messages · créée le ${esc(fullDate(k.createdAt))}</div></div>
       <div class="actions"><button class="btn ghost" data-a="rename">${icon('edit', 'sm')} Renommer</button><button class="btn" data-a="announce">${icon('megaphone', 'sm')} Annonce</button></div></div></section>
+    ${k.kind === 'school' ? `<section class="panel"><h2>${icon('star', 'sm')} Chef et sous-chef de classe</h2><div class="pad row" style="gap:16px;flex-wrap:wrap">
+      ${[['chef', 'Chef de classe', k.leaderId], ['sous-chef', 'Sous-chef de classe', k.deputyId]].map(([r, l, id]) => `<label class="grow" style="min-width:240px"><span class="faint" style="font-size:13px">${l}</span>
+        <select data-role-pick="${r}" style="display:block;width:100%;height:38px;margin-top:4px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text)"><option value="">— Personne —</option>${k.members.map(m => `<option value="${m.id}" ${m.id === id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>`).join('')}
+      <p class="hint" style="width:100%;margin:0">Ils peuvent demander la création de groupes avec des membres de ce groupe ; chaque demande vous est soumise (page Groupes).</p></div></section>` : ''}
     <div class="grid2">
       <section class="panel"><h2><span class="grow">Description</span><button class="btn text" data-a="desc">Modifier</button></h2><div class="pad" style="white-space:pre-wrap;font-size:14px">${esc(k.description || '—')}</div></section>
       <section class="panel"><h2>Réglages du groupe</h2>
@@ -482,6 +490,16 @@ async function classDetail(c, id) {
     <section class="panel"><h2>Zone sensible</h2><div class="pad actions"><button class="btn danger" data-a="delete" ${k.members.length ? 'disabled title="Transférez d\'abord les membres"' : ''}>${icon('trash', 'sm')} Supprimer la classe</button>
       <span class="faint" style="font-size:13px;align-self:center">${k.members.length ? 'Une classe ne peut être supprimée que lorsqu\'elle n\'a plus de membres.' : 'Cette classe est vide.'}</span></div></section>`;
 
+  c.querySelectorAll('[data-role-pick]').forEach(sel => (sel.onchange = async () => {
+    const role = sel.dataset.rolePick, uid = sel.value;
+    const current = role === 'chef' ? k.leaderId : k.deputyId;
+    try {
+      if (uid) await post(`/users/${uid}/leader`, { role });
+      else if (current) await post(`/users/${current}/leader`, { role: null });
+      toast(uid ? 'Rôle attribué' : 'Rôle retiré');
+      classDetail(c, id);
+    } catch (e) { fail(e); classDetail(c, id); }
+  }));
   const drawMembers = (q = '') => {
     const f = fold(q);
     $('[data-members]', c).innerHTML = k.members.filter(u => fold(u.name).includes(f)).slice(0, 300).map(u => `
@@ -603,7 +621,7 @@ async function groups(c) {
   const load = async () => {
     const [reqs, teams] = await Promise.all([get('/teams/requests?status=pending'), get('/teams')]).catch(e => { fail(e); return [null, null]; });
     if (!reqs) return;
-    c.innerHTML = `<p class="muted" style="margin-top:0">Les chefs de classe (nommés depuis la fiche d'un élève) demandent la création de groupes avec des membres de leur classe. Un groupe n'existe qu'après votre validation.</p>
+    c.innerHTML = `<p class="muted" style="margin-top:0">Le chef et le sous-chef de chaque groupe de classe d'établissement (nommés depuis la fiche d'un élève ou de la classe) demandent la création de groupes avec des membres de ce groupe. Un groupe n'existe qu'après votre validation.</p>
       <section class="panel"><h2>Demandes à valider (${reqs.length})</h2>${reqs.length ? reqs.map(r => `<div class="report" data-req="${r.id}">
         <div class="row" style="flex-wrap:wrap"><b class="grow">${esc(r.name)}</b><span class="faint" style="font-size:12.5px">${esc(listTime(r.at))}</span></div>
         <div style="font-size:14px;margin:4px 0">Chef de classe : <b>${esc(r.leaderName)}</b> · ${esc(r.className)}</div>

@@ -349,10 +349,16 @@ cours), couper le micro, caméra, retourner la caméra, **partage d'écran**, r�
 **Ma classe** (équivalent éducatif de l'onglet Communautés) — agenda des évènements, sondages récents,
 cours et documents partagés, annuaire de la classe.
 
-**Groupes des chefs de classe** — l'administration nomme des chefs de classe (fiche de l'élève). Un chef
-de classe demande la création d'un groupe avec des membres de sa classe ; le groupe n'existe qu'après
-validation dans *Administration › Groupes* (ou est refusé avec un motif). Le chef renomme le groupe,
-ajoute ou retire des membres de sa classe ; chacun peut le quitter ; l'administration peut le supprimer.
+**Chef et sous-chef de classe, et leurs groupes**
+
+Le chef et le sous-chef appartiennent au **groupe de la classe dans l'établissement** : il y en a un de chaque par groupe.
+- L'administration les nomme depuis la fiche de cette classe (*Classes › classe « École »*, listes « Chef de classe » et « Sous-chef de classe »), ou depuis la fiche de l'élève.
+- Nommer un nouveau chef ou sous-chef retire le rôle au précédent, qui est prévenu. Le rôle est aussi libéré si l'élève change d'établissement ou supprime son compte.
+- Les deux sont visibles dans la fiche du groupe, et marqués dans la liste de ses membres.
+
+Le chef comme le sous-chef peuvent demander la création d'un groupe avec des membres de **ce groupe d'école** uniquement. Le groupe n'existe qu'après validation dans *Administration › Groupes*, ou il est refusé avec un motif. Celui qui l'a demandé le renomme, et ajoute ou retire des membres de son groupe d'école ; chacun peut le quitter ; l'administration peut le supprimer.
+
+Les chefs de classe nommés avant cette règle deviennent automatiquement chefs de leur groupe d'école, si la place est libre.
 
 **Discussions avec ses contacts** — « Nouvelle discussion › Mes contacts sur Scola » (contacts du
 téléphone, Android/Chrome) ou « Écrire à un numéro » : on peut écrire à un élève d'une autre classe qui

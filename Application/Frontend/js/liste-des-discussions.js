@@ -320,7 +320,7 @@ export function newChatPage(side) {
     render: (body) => {
       body.innerHTML = `<div class="search-bar"><div class="search-box">${icon('search', 'sm')}<input placeholder="Rechercher un camarade" data-q></div></div>
         <div class="menu-row" data-a="group"><div class="av" style="--s:42px;background:var(--brand)">${icon('cap')}</div><div class="txt"><b>${esc(S.cls?.name || 'Ma classe')}</b><small>Groupe de la classe · ${S.cls?.memberCount || 0} membres</small></div></div>
-        ${S.me.classLeader ? `<div class="menu-row" data-a="team"><div class="av" style="--s:42px;background:var(--brand)">${icon('users')}</div><div class="txt">Créer un groupe<small>Chef de classe · validé par l'administration</small></div></div>` : ''}
+        ${S.me.classRole ? `<div class="menu-row" data-a="team"><div class="av" style="--s:42px;background:var(--brand)">${icon('users')}</div><div class="txt">Créer un groupe<small>${S.me.classRole === 'chef' ? 'Chef de classe' : 'Sous-chef de classe'} · validé par l'administration</small></div></div>` : ''}
         <div class="menu-row" data-a="contacts"><div class="av" style="--s:42px;background:var(--brand)">${icon('user')}</div><div class="txt">Mes contacts sur Scola<small>Trouver les contacts de mon téléphone qui utilisent Scola</small></div></div>
         <div class="menu-row" data-a="phone"><div class="av" style="--s:42px;background:var(--brand)">${icon('phone')}</div><div class="txt">Écrire à un numéro<small>Élève ou étudiant inscrit sur Scola</small></div></div>
         <div class="menu-row" data-a="broadcast"><div class="av" style="--s:42px;background:var(--brand)">${icon('megaphone')}</div><div class="txt">Nouvelle liste de diffusion</div></div>
@@ -352,12 +352,14 @@ export function newChatPage(side) {
 
 // Chef de classe : demande de création d'un groupe (validée par l'administration).
 export async function newTeam() {
-  const outsiders = [...S.members.values()].filter(u => !isClassmate(u)).map(u => u.id);
+  // Membres possibles : ceux du groupe de la classe dans l'établissement.
+  const inSchool = new Set(S.groups.get(S.me.schoolClassId)?.memberIds || []);
+  const outsiders = [...S.members.values()].filter(u => !inSchool.has(u.id)).map(u => u.id);
   const ids = await pickMembers({ title: 'Membres du groupe', multiple: true, min: 2, exclude: [S.me.id, ...outsiders], okLabel: 'Suivant' });
   if (!ids) return;
   const body = h(`<div><div class="field"><label>Nom du groupe</label><input class="input" data-n maxlength="60" placeholder="Ex. Groupe de TP réseaux"></div>
     <div class="field"><label>Description (facultatif)</label><textarea class="input" data-d rows="2" maxlength="300" placeholder="À quoi sert ce groupe ?"></textarea></div>
-    <p class="hint">${ids.length} membre(s) de votre classe. Le groupe sera créé après validation par l'administration de Scola ; vous serez prévenu dans vos Annonces.</p></div>`);
+    <p class="hint">${ids.length} membre(s) de votre classe dans l'établissement. Le groupe sera créé après validation par l'administration de Scola ; vous serez prévenu dans vos Annonces.</p></div>`);
   modal({ title: 'Créer un groupe', body, buttons: [{ label: 'Annuler' }, { label: 'Envoyer la demande', cls: 'text', onClick: async () => {
     await post('/teams/requests', { name: $('[data-n]', body).value, description: $('[data-d]', body).value, members: ids });
     toast('Demande envoyée à l\u2019administration');

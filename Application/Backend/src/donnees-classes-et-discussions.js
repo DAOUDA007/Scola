@@ -326,6 +326,8 @@ function deleteAccount(u, note) {
     if (!c) continue;
     c.memberIds = c.memberIds.filter(x => x !== u.id);
     c.restricted = c.restricted.filter(x => x !== u.id);
+    if (c.leaderId === u.id) c.leaderId = null;
+    if (c.deputyId === u.id) c.deputyId = null;
   }
   for (const s of Object.values(data.statuses)) if (s.userId === u.id) delete data.statuses[s.id];
   for (const s of Object.values(data.sessions)) if (s.userId === u.id) { delete data.sessions[s.id]; io?.to('s:' + s.id).emit('session:revoked'); }

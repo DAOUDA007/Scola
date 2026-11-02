@@ -309,7 +309,7 @@ function userRow(u) {
     id: u.id, name: u.name, phone: u.phone, matricule: u.matricule || '', institutionId: u.institutionId || null, schoolClassId: u.schoolClassId || null, avatar: u.avatar, school: u.school, about: u.about,
     classId: u.classId, className: cls?.name || '—', country: cls?.country || '',
     createdAt: u.createdAt, lastSeen: u.lastSeen, online: C.isOnline(u.id),
-    suspended: u.suspended || null, hasPin: !!u.pinHash, hasPassword: !!u.passwordHash, classLeader: !!u.classLeader, restricted: !!cls?.restricted.includes(u.id),
+    suspended: u.suspended || null, hasPin: !!u.pinHash, hasPassword: !!u.passwordHash, classRole: ETAB.roleOf(u), restricted: !!cls?.restricted.includes(u.id),
   };
 }
 
@@ -457,6 +457,7 @@ function classRow(c) {
   return {
     id: c.id, name: c.name, country: c.country, cycle: c.cycle, cycleLabel: c.cycleLabel, filiere: c.filiere, niveau: c.niveau,
     kind: c.kind || 'national', institutionName: c.kind === 'school' ? data.institutions?.[c.institutionId]?.name || '' : '',
+    leaderId: c.leaderId || null, deputyId: c.deputyId || null,
     description: c.description, icon: c.icon, createdAt: c.createdAt, members: c.memberIds.length,
     online: c.memberIds.filter(id => C.isOnline(id)).length,
     messages: list.filter(m => m.type !== 'system').length, lastActivity: last?.createdAt || null,
@@ -646,15 +647,22 @@ router.post('/users/:id/temp-password', (req, res) => {
 
 /* ---------------- Chefs de classe et groupes ---------------- */
 
+// Chef de classe / sous-chef : un de chaque par groupe de classe de l'établissement.
+// body.role : 'chef' | 'sous-chef' | null (retirer). Le précédent titulaire du rôle le perd.
 router.post('/users/:id/leader', (req, res) => {
   const u = data.users[req.params.id];
   if (!u || u.deleted) throw httpError(404, 'Utilisateur introuvable.');
-  u.classLeader = !!req.body.on;
-  save();
-  log(req, u.classLeader ? 'Chef de classe nommé' : 'Rôle de chef de classe retiré', `${u.name} — ${data.classes[u.classId]?.name || ''}`);
-  INBOX.notify(u.id, u.classLeader ? 'L\'administration de Scola vous a nommé chef de classe. Vous pouvez demander la création de groupes avec des membres de votre classe (Discussions › Nouvelle discussion › Créer un groupe).' : 'Votre rôle de chef de classe a été retiré par l\'administration de Scola.');
+  const role = req.body.role || null;
+  const prev = ETAB.roleOf(u);
+  const { cls, replaced } = ETAB.setRole(u, role);
+  log(req, role ? `${ETAB.ROLE_LABEL[role]} nommé` : 'Rôle de chef de classe retiré', `${u.name} — ${cls.name}`);
+  const where = `dans « ${cls.name} »`;
+  if (role) INBOX.notify(u.id, `L'administration de Scola vous a nommé ${role === 'chef' ? 'chef' : 'sous-chef'} de classe ${where}. Vous pouvez demander la création de groupes avec des membres de ce groupe (Discussions › Nouvelle discussion › Créer un groupe).`);
+  else if (prev) INBOX.notify(u.id, `Votre rôle de ${prev === 'chef' ? 'chef' : 'sous-chef'} de classe ${where} a été retiré par l'administration de Scola. Vos groupes existants restent en place.`);
+  if (replaced && data.users[replaced]) { INBOX.notify(replaced, `Un autre élève est désormais ${role === 'chef' ? 'chef' : 'sous-chef'} de classe ${where}. Vos groupes existants restent en place.`); C.toUser(replaced, 'me:update', {}); }
   C.toUser(u.id, 'me:update', {});
-  res.json({ ok: true, classLeader: u.classLeader });
+  for (const id of cls.memberIds) if (C.isOnline(id)) C.toUser(id, 'class:update', { refresh: true, id: cls.id });
+  res.json({ ok: true, classRole: ETAB.roleOf(u) });
 });
 
 const teamReqView = (r) => ({

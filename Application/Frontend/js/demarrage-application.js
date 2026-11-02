@@ -357,7 +357,12 @@ function connect() {
     if (S.cls) S.cls.memberCount = (S.cls.memberCount || 0) + 1;
     emit('members');
   });
-  socket.on('class:update', (c) => { if (c.kind === 'school') S.groups.set(c.id, c); else S.cls = c; emit('class'); emit('chats'); });
+  socket.on('class:update', async (c) => {
+    // Simple signal (ex. nouveau chef de classe) : on recharge la fiche du groupe concerné.
+    if (c?.refresh) { try { c = await get('/class' + (c.id === S.cls?.id ? '' : '?id=' + encodeURIComponent(c.id))); } catch { return; } }
+    if (c.kind === 'school') S.groups.set(c.id, c); else S.cls = c;
+    emit('class'); emit('chats');
+  });
   // L'administration a modifié le compte (ex. changement de classe) : on recharge.
   socket.on('reload', () => location.reload());
 

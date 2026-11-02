@@ -47,7 +47,9 @@ function openTeam(chat) {
           if (uid && uid !== S.me.id) return openUser(uid);
           if (a === 'name') { const v = await promptBox('Nom du groupe', { value: c.name, max: 60 }); if (v) { S.chats.set(c.id, await patch('/teams/' + c.id, { name: v })); emit('chats'); emit('chat:meta', c.id); } }
           if (a === 'add') {
-            const outsiders = [...S.members.values()].filter(u => u.classId !== S.me.classId).map(u => u.id);
+            // Seulement des membres du groupe de la classe dans l'établissement.
+            const inSchool = new Set(S.groups.get(S.me.schoolClassId)?.memberIds || []);
+            const outsiders = [...S.members.values()].filter(u => !inSchool.has(u.id)).map(u => u.id);
             const ids = await pickMembers({ title: 'Ajouter des membres', multiple: true, min: 1, exclude: [...c.members, ...outsiders] });
             if (ids) { S.chats.set(c.id, await patch('/teams/' + c.id, { add: ids })); emit('chats'); }
           }
@@ -165,6 +167,7 @@ export function openGroup(gid) {
             <h3 class="edit-line" style="justify-content:center">${esc(c.name)} ${canEdit ? `<button class="icon-btn" data-a="name" title="Renommer">${icon('edit', 'sm')}</button>` : ''}</h3>
             <p>Groupe · ${c.memberCount} membre${c.memberCount > 1 ? 's' : ''}</p>
             <p class="faint" style="font-size:13px">${esc(c.cycleLabel)} · ${esc(c.filiere)} · ${esc(c.niveau)} — ${esc(c.kind === 'school' ? c.institutionName : c.country)}</p>
+            ${c.kind === 'school' ? `<p class="faint" style="font-size:13px">${icon('star', 'xs')} Chef de classe : <b>${esc(c.leaderId ? user(c.leaderId).name : 'pas encore nommé')}</b> · Sous-chef : <b>${esc(c.deputyId ? user(c.deputyId).name : 'pas encore nommé')}</b></p>` : ''}
             <div class="profile-actions">
               <button data-a="audio">${icon('phone')}Audio</button>
               <button data-a="video">${icon('video')}Vidéo</button>
@@ -188,7 +191,7 @@ export function openGroup(gid) {
             <div style="padding:0 16px 8px"><div class="search-box">${icon('search', 'sm')}<input placeholder="Rechercher un membre" data-q value="${esc(q)}"></div></div>
             <div data-members>${shown.slice(0, 300).map(u => `
               <div class="item compact" data-uid="${u.id}">${avatar(u, 40)}
-                <div class="body"><div class="top"><span class="name">${esc(u.id === S.me.id ? 'Vous' : u.name)}</span>${c.restricted.includes(u.id) ? '<span class="tag red">Restreint</span>' : ''}</div>
+                <div class="body"><div class="top"><span class="name">${esc(u.id === S.me.id ? 'Vous' : u.name)}</span>${c.leaderId === u.id ? '<span class="tag founder">Chef de classe</span>' : c.deputyId === u.id ? '<span class="tag">Sous-chef</span>' : ''}${c.restricted.includes(u.id) ? '<span class="tag red">Restreint</span>' : ''}</div>
                 <div class="bot"><span class="prev">${esc(u.about || u.school || '')}</span></div></div></div>`).join('')}
               ${shown.length > 300 ? `<div class="empty">+ ${shown.length - 300} autres membres, affinez la recherche.</div>` : ''}</div>
           </div>

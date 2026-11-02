@@ -114,22 +114,23 @@ function teamOf(req) {
   if (!c || c.type !== 'team' || !c.members.includes(req.user.id)) throw httpError(404, 'Groupe introuvable.');
   return c;
 }
-const isLeader = (u) => !!u?.classLeader;
+// Chef ou sous-chef de son groupe de classe dans l'établissement.
+const isLeader = (u) => !!require('./etablissements-des-eleves').roleOf(u);
 function validMembers(me, ids) {
-  const cls = C.classOf(me);
+  const cls = me.schoolClassId && data.classes[me.schoolClassId];
   return [...new Set((ids || []).filter(id => id !== me.id && cls?.memberIds.includes(id) && !data.users[id]?.deleted))];
 }
 
 // Demande de création (chef de classe) : validée ou refusée par l'administration.
 router.post('/teams/requests', (req, res) => {
-  if (!isLeader(req.user)) throw httpError(403, 'Seul un chef de classe peut créer un groupe.');
+  if (!isLeader(req.user)) throw httpError(403, 'Seuls le chef et le sous-chef de classe peuvent créer un groupe.');
   const name = clip(req.body.name, 60);
   if (name.length < 3) throw httpError(400, 'Donnez un nom au groupe (3 caractères minimum).');
   const members = validMembers(req.user, req.body.members);
-  if (members.length < 2) throw httpError(400, 'Choisissez au moins 2 membres de votre classe.');
+  if (members.length < 2) throw httpError(400, 'Choisissez au moins 2 membres de votre classe dans l\'établissement.');
   if (members.length > 255) throw httpError(400, '255 membres au maximum.');
   if (Object.values(data.teamRequests).filter(r => r.by === req.user.id && r.status === 'pending').length >= 3) throw httpError(400, 'Vous avez déjà 3 demandes en attente.');
-  const r = { id: C.uid('tr_'), by: req.user.id, classId: req.user.classId, name, description: clip(req.body.description, 300), members, at: C.now(), status: 'pending' };
+  const r = { id: C.uid('tr_'), by: req.user.id, classId: req.user.schoolClassId, name, description: clip(req.body.description, 300), members, at: C.now(), status: 'pending' };
   data.teamRequests[r.id] = r;
   save();
   res.json(r);
@@ -171,13 +172,15 @@ function approve(r, admin) {
   if (r.status !== 'pending') throw httpError(400, 'Demande déjà traitée.');
   const leader = data.users[r.by];
   if (!leader || leader.deleted) throw httpError(400, 'Le chef de classe n\'existe plus.');
-  const members = [...new Set([r.by, ...r.members.filter(id => data.users[id] && !data.users[id].deleted && data.users[id].classId === r.classId)])];
+  const inClass = data.classes[r.classId]?.memberIds || [];
+  const members = [...new Set([r.by, ...r.members.filter(id => data.users[id] && !data.users[id].deleted && inClass.includes(id))])];
   const id = C.uid('t_');
   data.chats[id] = { id, type: 'team', name: r.name, description: r.description, classId: r.classId, members, admins: [r.by], createdBy: r.by, approvedBy: admin.id, createdAt: C.now(), disappearing: 0, pinnedMsgs: [] };
   data.messages[id] = [];
   Object.assign(r, { status: 'approved', chatId: id, handledBy: admin.id, handledAt: C.now() });
   save();
-  C.systemMessage(id, `Groupe « ${r.name} » créé par ${leader.name}, chef de classe, et validé par l'administration de Scola`);
+  const role = require('./etablissements-des-eleves').roleOf(leader);
+  C.systemMessage(id, `Groupe « ${r.name} » créé par ${leader.name}${role === 'sous-chef' ? ', sous-chef de classe' : ', chef de classe'}, et validé par l'administration de Scola`);
   for (const uid of members) C.toUser(uid, 'chat:update', { id });
   require('./annonces-et-avertissements').notify(r.by, `Votre groupe « ${r.name} » a été validé par l'administration. Il apparaît dans vos discussions.`);
   return data.chats[id];

@@ -17,6 +17,13 @@ const { data, save } = C;
 
 (function migrate() {
   if (!data.institutions || typeof data.institutions !== 'object') { data.institutions = {}; save(); }
+  // Chefs de classe nommés avant les groupes d'école : rattachés à leur groupe d'école s'ils en ont un.
+  let changed = false;
+  for (const u of Object.values(data.users)) {
+    const sc = u.classLeader && u.schoolClassId && data.classes[u.schoolClassId];
+    if (sc) { if (!sc.leaderId) sc.leaderId = u.id; delete u.classLeader; changed = true; }
+  }
+  if (changed) save();
 })();
 
 // « ETIC de Korhogo », « E.T.I.C Korhogo », « etic korhogo » → « etic korhogo ».
@@ -105,9 +112,38 @@ function ensureSchoolClass(national, inst) {
 }
 const schoolClassOf = (u) => (u?.schoolClassId ? data.classes[u.schoolClassId] : null);
 
+/* ---------------- Chef de classe et sous-chef (un de chaque par groupe d'école) ---------------- */
+const ROLE_LABEL = { chef: 'Chef de classe', 'sous-chef': 'Sous-chef de classe' };
+function roleOf(u) {
+  const sc = schoolClassOf(u);
+  if (!sc || !u) return null;
+  return sc.leaderId === u.id ? 'chef' : sc.deputyId === u.id ? 'sous-chef' : null;
+}
+// Nomme (ou retire, role = null) ; un élève ne peut pas être à la fois chef et sous-chef.
+function setRole(u, role) {
+  const sc = schoolClassOf(u);
+  if (!sc || !sc.memberIds.includes(u.id)) throw httpError(400, 'Cet élève n\'a pas encore de groupe de classe dans son établissement.');
+  if (role && !ROLE_LABEL[role]) throw httpError(400, 'Rôle inconnu.');
+  const before = { chef: sc.leaderId || null, 'sous-chef': sc.deputyId || null };
+  if (sc.leaderId === u.id) sc.leaderId = null;
+  if (sc.deputyId === u.id) sc.deputyId = null;
+  let replaced = null;
+  if (role === 'chef') { replaced = sc.leaderId; sc.leaderId = u.id; }
+  if (role === 'sous-chef') { replaced = sc.deputyId; sc.deputyId = u.id; }
+  save();
+  if (role) C.systemMessage(sc.id, `${u.name} est ${role === 'chef' ? 'chef' : 'sous-chef'} de classe`);
+  return { cls: sc, replaced: replaced && replaced !== u.id ? replaced : null, before };
+}
+function clearRoles(u, sc) {
+  if (!sc) return;
+  if (sc.leaderId === u.id) sc.leaderId = null;
+  if (sc.deputyId === u.id) sc.deputyId = null;
+}
+
 function leave(u, note) {
   const old = schoolClassOf(u);
   if (!old) return;
+  clearRoles(u, old);
   old.memberIds = old.memberIds.filter(x => x !== u.id);
   old.restricted = old.restricted.filter(x => x !== u.id);
   if (note) C.systemMessage(old.id, note);
@@ -124,6 +160,8 @@ function join(u, inst, { note } = {}) {
     leave(u, note);
     u.schoolClassId = cls.id;
     if (!cls.memberIds.includes(u.id)) cls.memberIds.push(u.id);
+    // Ancien chef de classe (nommé avant les groupes d'école) : il le devient dans ce groupe s'il est libre.
+    if (u.classLeader) { if (!cls.leaderId) cls.leaderId = u.id; delete u.classLeader; }
     C.systemMessage(cls.id, `${u.name} a rejoint le groupe`, { meta: { joined: u.id } });
   }
   save();
@@ -209,4 +247,4 @@ const router = express.Router();
 // Suggestions : utilisées pendant l'inscription (avant d'avoir un compte) et par l'administration.
 router.get('/institutions/suggest', (req, res) => res.json(suggest(String(req.query.q || '').slice(0, 80))));
 
-module.exports = { router, norm, resolve, suggest, join, leave, schoolClassOf, ensureSchoolClass, adminList, rename, validate, merge, getInst, groupName };
+module.exports = { router, ROLE_LABEL, roleOf, setRole, norm, resolve, suggest, join, leave, schoolClassOf, ensureSchoolClass, adminList, rename, validate, merge, getInst, groupName };

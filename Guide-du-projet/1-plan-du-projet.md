@@ -33,7 +33,7 @@
 | `src/etablissements-des-eleves.js` | **établissement de chaque élève** et **groupe de sa classe dans son école** : suggestions, regroupement des variantes de noms, fusion des doublons |
 | `src/listes-pays-filieres-niveaux.js` | listes **pays, cycles, filières/séries, niveaux** (modifiables dans l'administration) |
 | `src/annonces-et-avertissements.js` | **annonces** de l'administration et avertissements reçus par les élèves |
-| `src/groupes-chefs-de-classe-et-contacts.js` | groupes créés par les **chefs de classe**, discussions avec les **contacts** du téléphone |
+| `src/groupes-chefs-de-classe-et-contacts.js` | groupes demandés par le **chef et le sous-chef de classe** (groupe de la classe dans l'école), discussions avec les **contacts** du téléphone |
 | `src/support-messages-a-l-equipe.js` | **« Écrire à l'équipe Scola »** (élèves et établissements) |
 | `src/orientation-chaines-ecoles.js` | onglet **Orientation** : chaînes des écoles, abonnements, questions aux écoles |
 | `src/formules-et-tarifs.js` | **formules** des établissements (Starter, Pro…), prix, droits et quotas |
